@@ -5,14 +5,17 @@
 # index rebuilt from it; delete it at any time and `brain sync` restores it.
 set -uo pipefail
 
-VAULT="${BRAIN_VAULT:-$HOME/Documents/Brain}"
-STATE="${BRAIN_STATE:-$HOME/.local/state/brain}"
+CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/brain"
+CONF_VAULT="$CONF_DIR/vault"
+STATE="${BRAIN_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/brain}"
 DB="$STATE/brain.db"
 CORE="AI/MEMORY.md AI/LEARNINGS.md AI/TUNINGS.md"
 MAXLEN=400          # soft cap on a bullet's fact text
 STALE_DAYS=90       # a fact older than this wants re-verification
 FIND_LIMIT=8
 FIND_BYTES=4000
+
+die() { printf 'brain: %s\n' "$*" >&2; exit 1; }
 
 os_kind() {
   case "$(uname -s 2>/dev/null)" in
@@ -22,6 +25,38 @@ os_kind() {
     *)                      echo unknown ;;
   esac
 }
+
+# readlink -f is GNU-only, so walk the symlink chain by hand.
+resolve_dir() {
+  local p="$1" d
+  while [ -L "$p" ]; do
+    d=$(cd -- "$(dirname -- "$p")" && pwd -P)
+    p=$(readlink -- "$p")
+    case "$p" in /*) ;; *) p="$d/$p" ;; esac
+  done
+  (cd -- "$(dirname -- "$p")" && pwd -P)
+}
+
+# Where the vault is, in order of authority:
+#   $BRAIN_VAULT        an explicit override, for a second clone or a test
+#   ~/.config/brain/vault   written by `brain install`; the only source that
+#                       survives Windows, where install copies rather than links
+#   the script's own location, when it is still inside a checkout
+# A clone therefore needs no editing: `brain install` records where it landed.
+find_vault() {
+  local d
+  if [ -n "${BRAIN_VAULT:-}" ]; then printf '%s\n' "$BRAIN_VAULT"; return 0; fi
+  if [ -r "$CONF_VAULT" ]; then
+    d=$(head -1 "$CONF_VAULT")
+    [ -n "$d" ] && [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
+  fi
+  d=$(resolve_dir "$0")          # .../<vault>/bin
+  d=${d%/bin}
+  [ -d "$d/AI" ] && { printf '%s\n' "$d"; return 0; }
+  return 1
+}
+
+VAULT=$(find_vault) || die "cannot find the vault: set BRAIN_VAULT, or run 'bin/brain install' from a checkout"
 
 # GNU find's -printf and bash 4's mapfile are unavailable on macOS, so list
 # files the portable way and build the array with a read loop.
@@ -33,13 +68,12 @@ require_sqlite() {
     || die "this sqlite3 lacks FTS5; install a build with it enabled"
 }
 
-die() { printf 'brain: %s\n' "$*" >&2; exit 1; }
 # The index is disposable and rebuilt on demand, so no agent needs to know
 # that 'brain sync' exists: a missing or stale database resyncs itself.
 ensure_db() {
   if [ ! -s "$DB" ]; then cmd_sync >/dev/null; return 0; fi
   local newer
-  newer=$(find "$VAULT" -name '*.md' -not -path '*/.git/*' -newer "$DB" -print -quit 2>/dev/null)
+  newer=$(find "$VAULT" -name '*.md' ! -path '*/.git/*' -newer "$DB" -print -quit 2>/dev/null)
   [ -n "$newer" ] && cmd_sync >/dev/null
   return 0
 }
@@ -252,6 +286,17 @@ query_lines() {
     order by bm25(lines_fts) limit 5;" 2>/dev/null
 }
 
+# The bootstrap answer: an agent that has `brain` on PATH can always find the
+# vault, without already knowing where it is.
+cmd_locate() {
+  local p="$VAULT"
+  if [ "${1:-}" = "--native" ] && command -v cygpath >/dev/null 2>&1; then
+    cygpath -w -- "$p"
+  else
+    printf '%s\n' "$p"
+  fi
+}
+
 cmd_log() {
   ensure_db
   echo "== zero-hit queries (the synonym backlog) =="
@@ -434,7 +479,9 @@ cmd_install() {
   os=$(os_kind)
   shims="$VAULT/bin/shims"
   bindir=$(pick_bindir) || die "no writable directory for the binary; set GOBIN or create ~/.local/bin"
-  mkdir -p "$STATE"
+  mkdir -p "$STATE" "$CONF_DIR"
+  printf '%s\n' "$VAULT" > "$CONF_VAULT"
+  echo "recorded the vault at $CONF_VAULT"
 
   chmod +x "$VAULT/bin/brain" "$VAULT/bin/hooks/"* "$VAULT/bin/shims/"* 2>/dev/null
 
@@ -447,7 +494,8 @@ cmd_install() {
     echo "copied $bindir/brain (no symlink support; re-run install after an update)"
   fi
 
-  git -C "$VAULT" config core.hooksPath "$VAULT/bin/hooks"
+  # Relative, so the setting survives moving or re-cloning the repo.
+  git -C "$VAULT" config core.hooksPath bin/hooks
   echo "repo hooks: $(git -C "$VAULT" config --get core.hooksPath)"
 
   echo "PATH for the CLI:"
@@ -489,6 +537,7 @@ usage() {
   cat <<'USAGE'
 brain — query and lint the vault. Markdown is canonical; the index is disposable.
 
+  brain locate [--native] absolute path to the vault, for agents and scripts
   brain find <terms...>   search bullets, handle matches ranked first
   brain sync              rebuild the index from markdown
   brain doctor            what is stale, thin, oversized, duplicated or orphaned
@@ -503,6 +552,7 @@ USAGE
 
 case "${1:-}" in
   find)    shift; cmd_find "$@" ;;
+  locate)  shift; cmd_locate "${1:-}" ;;
   sync)    shift; cmd_sync ;;
   doctor)  shift; cmd_doctor ;;
   log)     shift; cmd_log ;;

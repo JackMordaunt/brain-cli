@@ -14,7 +14,7 @@ rebuilds it.
 
 ## Install
 
-    ~/Documents/Brain/bin/brain install
+    <path-to-clone>/bin/brain install   # afterwards: brain install
 
 Links `~/.local/bin/brain`, points this repo's `core.hooksPath` at `bin/hooks`,
 sources the guards from `~/.bashrc`, and builds the index.
