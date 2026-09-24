@@ -39,23 +39,24 @@ resolve_dir() {
 
 # Where the vault is, in order of authority:
 #   $BRAIN_VAULT        an explicit override, for a second clone or a test
-#   ~/.config/brain/vault   written by `brain install`; the only source that
-#                       survives Windows, where install copies rather than links
-#   the script's own location, when it is still inside a checkout
-# A clone therefore needs no editing: `brain install` records where it landed.
+#   the script's own location, when it sits inside a checkout — so running
+#                       bin/brain from a clone binds to THAT clone, not to
+#                       whichever one was installed first
+#   ~/.config/brain/vault   written by `brain install`; the fallback for
+#                       Windows, where install copies the script and its
+#                       location says nothing about where the vault is
 find_vault() {
   local d
   if [ -n "${BRAIN_VAULT:-}" ]; then printf '%s\n' "$BRAIN_VAULT"; return 0; fi
+  d=$(resolve_dir "$0")          # .../<vault>/bin
+  d=${d%/bin}
+  [ -d "$d/AI" ] && { printf '%s\n' "$d"; return 0; }
   if [ -r "$CONF_VAULT" ]; then
     d=$(head -1 "$CONF_VAULT")
     [ -n "$d" ] && [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
   fi
-  d=$(resolve_dir "$0")          # .../<vault>/bin
-  d=${d%/bin}
-  [ -d "$d/AI" ] && { printf '%s\n' "$d"; return 0; }
   return 1
 }
-
 VAULT=$(find_vault) || die "cannot find the vault: set BRAIN_VAULT, or run 'bin/brain install' from a checkout"
 
 # GNU find's -printf and bash 4's mapfile are unavailable on macOS, so list
