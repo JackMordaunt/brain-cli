@@ -14,10 +14,19 @@ rebuilds it.
 
 ## Install
 
-    <path-to-clone>/bin/brain install   # afterwards: brain install
+    <path-to-clone>/bin/brain install      # afterwards: brain install
 
-Links `~/.local/bin/brain`, points this repo's `core.hooksPath` at `bin/hooks`,
-sources the guards from `~/.bashrc`, and builds the index.
+Binds this machine to this clone: records the vault path, links the CLI into the
+first writable directory of ~/.local/bin, ~/bin, GOBIN, GOPATH/bin,
+/usr/local/bin, points `core.hooksPath` at `bin/hooks`, puts the guard shims on
+PATH, and aims `~/.agents/AGENTS.md` at this clone so pi, Codex and Claude Code
+all follow. `--dry-run` shows every change without making one; `brain uninstall`
+removes them again.
+
+Everything written into a file you own sits inside a tagged block
+(`brain:path`, `brain:guards`, `brain:claude`), and the file is backed up to
+`<file>.brain-backup` the first time. Re-running install replaces the block; it
+never touches a line outside it.
 
 ## Why this shape
 

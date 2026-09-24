@@ -488,6 +488,56 @@ cmd_lint() {
 }
 
 # ------------------------------------------------------------- install ----
+# Everything install writes to a file the user owns goes inside a tagged block,
+# so it can be replaced on re-install and removed by `brain uninstall` without
+# touching a line the user wrote.
+DRY=0
+say()  { if [ "$DRY" -eq 1 ]; then printf "  [dry] %s\n" "$*"; else printf "  %s\n" "$*"; fi; }
+note() { printf "  %s\n" "$*"; }
+
+block_begin() { printf '%s brain:%s >>> managed by `brain install`; edit the vault, not this block %s' "$1" "$2" "$3"; }
+block_end()   { printf '%s brain:%s <<< %s' "$1" "$2" "$3"; }
+
+# $1 file  $2 tag  $3 comment-open  $4 comment-close  $5 body
+block_apply() {
+  local file="$1" tag="$2" co="$3" cc="$4" body="$5" b e tmp
+  b=$(block_begin "$co" "$tag" "$cc"); e=$(block_end "$co" "$tag" "$cc")
+  [ -e "$file" ] || { [ "$DRY" -eq 1 ] || { mkdir -p "$(dirname "$file")"; : > "$file"; }; }
+  if [ -f "$file" ] && grep -qF "brain:$tag >>>" "$file" 2>/dev/null; then
+    local cur
+    cur=$(awk -v b="brain:$tag >>>" -v e="brain:$tag <<<" 'index($0,b){f=1} f{print} index($0,e){f=0}' "$file")
+    if [ "$cur" = "$(printf '%s\n%s\n%s' "$b" "$body" "$e")" ]; then say "$file: already current"; return 0; fi
+    say "$file: block refreshed"
+    [ "$DRY" -eq 1 ] && return 0
+    cp -f "$file" "$file.brain-backup"
+    tmp="$file.brain-tmp"
+    awk -v b="brain:$tag >>>" -v e="brain:$tag <<<" -v new="$(printf '%s\n%s\n%s' "$b" "$body" "$e")" '
+      index($0,b) { print new; skip=1; next }
+      skip && index($0,e) { skip=0; next }
+      skip { next }
+      { print }' "$file" > "$tmp" && mv "$tmp" "$file"
+  else
+    say "$file: block added"
+    [ "$DRY" -eq 1 ] && return 0
+    [ -s "$file" ] && cp -f "$file" "$file.brain-backup"
+    printf '%s\n%s\n%s\n\n%s' "$b" "$body" "$e" "$(cat "$file" 2>/dev/null)" > "$file.brain-tmp" \
+      && mv "$file.brain-tmp" "$file"
+  fi
+}
+
+block_remove() {
+  local file="$1" tag="$2" tmp="$1.brain-tmp"
+  [ -f "$file" ] || return 0
+  grep -qF "brain:$tag >>>" "$file" 2>/dev/null || return 0
+  say "$file: block removed"
+  [ "$DRY" -eq 1 ] && return 0
+  awk -v b="brain:$tag >>>" -v e="brain:$tag <<<" '
+    index($0,b) { skip=1; next }
+    skip && index($0,e) { skip=0; next }
+    skip { next }
+    { print }' "$file" > "$tmp" && mv "$tmp" "$file"
+}
+
 on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; *) return 1 ;; esac; }
 
 # The same preference order the justfile standard uses for `install`.
@@ -497,12 +547,12 @@ pick_bindir() {
     [ -n "$d" ] || continue
     [ -d "$d" ] && [ -w "$d" ] && { printf '%s\n' "$d"; return 0; }
   done
-  mkdir -p "$HOME/.local/bin" 2>/dev/null && { printf '%s\n' "$HOME/.local/bin"; return 0; }
-  return 1
+  [ "$DRY" -eq 1 ] || mkdir -p "$HOME/.local/bin" 2>/dev/null
+  printf '%s\n' "$HOME/.local/bin"
 }
 
 # Which files a login shell reads differs per platform: zsh is the macOS
-# default, Git Bash reads .bashrc, and only Linux has environment.d.
+# default and reads .zshenv for every invocation, Git Bash reads .bashrc.
 path_rc_files() {
   case "$(os_kind)" in
     macos)   printf '%s\n' "$HOME/.zshenv" "$HOME/.bash_profile" ;;
@@ -511,82 +561,131 @@ path_rc_files() {
   esac
 }
 
-# Prepend a directory to PATH in one rc file, above an interactive early-return
-# if the file has one, so shells that source it non-interactively benefit too.
-add_path_line() {
-  local rc="$1" dir="$2" note="$3"
-  [ -e "$rc" ] || : > "$rc"
-  grep -qF "$dir" "$rc" 2>/dev/null && { echo "  $rc: already there"; return 0; }
-  if grep -qF '[[ $- != *i* ]] && return' "$rc" 2>/dev/null; then
-    awk -v d="$dir" -v n="$note" '
-      /^\[\[ \$- != \*i\* \]\] && return/ && !done {
-        print "# " n; print "export PATH=\"" d ":$PATH\""; print ""; done=1
-      } { print }' "$rc" > "$rc.brain" && mv "$rc.brain" "$rc"
-    echo "  $rc: added above the interactive guard"
+# In .bashrc the block must sit above the interactive early-return, or shells
+# that source the file non-interactively never reach it.
+rc_block() {
+  local rc="$1" body="$2" tag="$3"
+  if [ -f "$rc" ] && grep -qF '[[ $- != *i* ]] && return' "$rc" 2>/dev/null \
+     && ! grep -qF "brain:$tag >>>" "$rc" 2>/dev/null; then
+    say "$rc: block added above the interactive guard"
+    [ "$DRY" -eq 1 ] && return 0
+    cp -f "$rc" "$rc.brain-backup"
+    awk -v b="$(block_begin '#' "$tag" '')" -v e="$(block_end '#' "$tag" '')" -v body="$body" '
+      /^\[\[ \$- != \*i\* \]\] && return/ && !done { print b; print body; print e; print ""; done=1 }
+      { print }' "$rc" > "$rc.brain-tmp" && mv "$rc.brain-tmp" "$rc"
   else
-    printf '\n# %s\nexport PATH="%s:$PATH"\n' "$note" "$dir" >> "$rc"
-    echo "  $rc: appended"
+    block_apply "$rc" "$tag" '#' '' "$body"
   fi
 }
 
 cmd_install() {
+  [ "${1:-}" = "--dry-run" ] && DRY=1
   require_sqlite
   local os bindir shims
-  os=$(os_kind)
-  shims="$VAULT/bin/shims"
-  bindir=$(pick_bindir) || die "no writable directory for the binary; set GOBIN or create ~/.local/bin"
-  mkdir -p "$STATE" "$CONF_DIR"
-  printf '%s\n' "$VAULT" > "$CONF_VAULT"
-  echo "recorded the vault at $CONF_VAULT"
+  os=$(os_kind); shims="$VAULT/bin/shims"
+  bindir=$(pick_bindir)
 
-  chmod +x "$VAULT/bin/brain" "$VAULT/bin/hooks/"* "$VAULT/bin/shims/"* 2>/dev/null
+  echo "vault: $VAULT   ($os)"
+  [ "$DRY" -eq 1 ] || { mkdir -p "$STATE" "$CONF_DIR"; printf '%s\n' "$VAULT" > "$CONF_VAULT"; }
+  say "vault path recorded: $CONF_VAULT"
+  [ "$DRY" -eq 1 ] || chmod +x "$VAULT/bin/brain" "$VAULT/bin/hooks/"* "$VAULT/bin/shims/"* 2>/dev/null
 
-  # Windows filesystems often refuse symlinks; a copy is correct there, at the
-  # cost of needing `brain install` again after an update.
-  if ln -sf "$VAULT/bin/brain" "$bindir/brain" 2>/dev/null; then
-    echo "linked $bindir/brain"
+  echo "cli:"
+  if [ "$DRY" -eq 1 ]; then
+    say "cli link: $bindir/brain"
+  elif ln -sf "$VAULT/bin/brain" "$bindir/brain" 2>/dev/null; then
+    say "cli link: $bindir/brain"
   else
     cp -f "$VAULT/bin/brain" "$bindir/brain" && chmod +x "$bindir/brain"
-    echo "copied $bindir/brain (no symlink support; re-run install after an update)"
+    say "copied $bindir/brain (no symlink support; re-run install after an update)"
   fi
-
-  # Relative, so the setting survives moving or re-cloning the repo.
-  git -C "$VAULT" config core.hooksPath bin/hooks
-  echo "repo hooks: $(git -C "$VAULT" config --get core.hooksPath)"
-
-  echo "PATH for the CLI:"
   if on_path "$bindir"; then
-    echo "  $bindir is already on PATH"
+    note "$bindir is already on PATH"
   else
-    local rc
-    path_rc_files | while IFS= read -r rc; do
-      add_path_line "$rc" "$bindir" "brain: the vault's CLI"
-    done
-    echo "  open a new shell, or: export PATH=\"$bindir:\$PATH\""
+    path_rc_files | while IFS= read -r rc; do rc_block "$rc" "export PATH=\"$bindir:\$PATH\"" "path"; done
+    note "open a new shell, or: export PATH=\"$bindir:\$PATH\""
   fi
 
-  echo "PATH for the guards:"
-  # Supersede the earlier shell-function guard, which covered interactive shells only.
-  local rc="$HOME/.bashrc"
-  if grep -qF 'brain-guards.sh' "$rc" 2>/dev/null; then
-    grep -v 'brain-guards.sh' "$rc" | grep -v '^# Brain guards: refuse the commands that have cost settings before\.$' \
-      > "$rc.brain" && mv "$rc.brain" "$rc"
-    echo "  removed the superseded shell-function guard from ~/.bashrc"
+  echo "git hooks:"
+  [ "$DRY" -eq 1 ] || git -C "$VAULT" config core.hooksPath bin/hooks
+  say "core.hooksPath = bin/hooks (relative, so it survives a move)"
+
+  echo "guards:"
+  # The old shell-function guard, superseded by the shims.
+  if grep -qF 'brain-guards.sh' "$HOME/.bashrc" 2>/dev/null; then
+    say "$HOME/.bashrc: removing the superseded shell-function guard"
+    [ "$DRY" -eq 1 ] || { grep -v 'brain-guards.sh' "$HOME/.bashrc" \
+      | grep -v '^# Brain guards: refuse' > "$HOME/.bashrc.brain-tmp" && mv "$HOME/.bashrc.brain-tmp" "$HOME/.bashrc"; }
   fi
-  path_rc_files | while IFS= read -r rc; do
-    add_path_line "$rc" "$shims" "Brain guards: refuse commands the vault records as traps"
+  path_rc_files | while IFS= read -r rc; do rc_block "$rc" "export PATH=\"$shims:\$PATH\"" "guards"; done
+  if [ "$os" = linux ]; then
+    local envd="$HOME/.config/environment.d/10-brain-shims.conf"
+    say "$envd — covers every shell in the session, from the next login"
+    [ "$DRY" -eq 1 ] || { mkdir -p "$HOME/.config/environment.d"
+      printf '# Brain guards: refuse commands recorded as traps.\nPATH=%s:${PATH}\n' "$shims" > "$envd"; }
+  else
+    note "on $os only shells reading the files above are covered"
+  fi
+
+  echo "agent bindings:"
+  # ~/.agents/AGENTS.md is the canonical binding: pi and Codex already symlink
+  # to it, so pointing it at this clone is all a new machine needs.
+  local agents="$HOME/.agents/AGENTS.md"
+  if [ "$DRY" -eq 1 ]; then
+    say "agents link: $agents -> $VAULT/AI/AGENTS.md"
+  else
+    mkdir -p "$HOME/.agents"
+    ln -sfn "$VAULT/AI/AGENTS.md" "$agents" 2>/dev/null \
+      && say "agents link: $agents -> $VAULT/AI/AGENTS.md" \
+      || say "could not link $agents (copy it by hand)"
+  fi
+  # Tilde imports are supported, so this block is identical on every machine.
+  block_apply "$HOME/.claude/CLAUDE.md" "claude" '<!--' '-->' \
+"@~/.agents/AGENTS.md
+
+The Brain is this machine's shared agent memory. \`brain locate\` prints its path,
+\`brain find <handle>\` searches it. Do not hard-code the path."
+  # An absolute import of the same file would load it a second time.
+  if grep -q "^@.*${VAULT}/AI/AGENTS.md" "$HOME/.claude/CLAUDE.md" 2>/dev/null; then
+    say "$HOME/.claude/CLAUDE.md: dropping the now-duplicate absolute import"
+    [ "$DRY" -eq 1 ] || { grep -v "^@.*${VAULT}/AI/AGENTS.md" "$HOME/.claude/CLAUDE.md" \
+      > "$HOME/.claude/CLAUDE.md.brain-tmp" && mv "$HOME/.claude/CLAUDE.md.brain-tmp" "$HOME/.claude/CLAUDE.md"; }
+  fi
+  # pi and Codex are pointer-only by design; verify rather than edit them.
+  local a
+  for a in "$HOME/.pi/agent/AGENTS.md" "$HOME/.codex/AGENTS.md"; do
+    if [ -e "$a" ]; then
+      if [ "$(resolve_dir "$a")/$(basename "$(readlink -f "$a" 2>/dev/null || echo "$a")")" = "$VAULT/AI/AGENTS.md" ] || [ -r "$a" ]; then
+        note "$a resolves (pointer-only by design; left alone)"
+      fi
+    else
+      note "$a absent — link it to $agents if that agent is used here"
+    fi
   done
-  if [ "$os" = linux ] && [ -d "$HOME/.config" ]; then
-    mkdir -p "$HOME/.config/environment.d"
-    printf '# Brain guards: refuse commands recorded as traps. See %s/readme.md\nPATH=%s:${PATH}\n' \
-      "$VAULT/bin" "$shims" > "$HOME/.config/environment.d/10-brain-shims.conf"
-    echo "  wrote ~/.config/environment.d/10-brain-shims.conf — covers every shell in the session, from the next login"
-  else
-    echo "  note: on $os only shells that read the files above are covered; a plain"
-    echo "        non-interactive shell reads none of them"
-  fi
 
+  echo "scanner:"
+  if find_gitleaks >/dev/null 2>&1; then note "gitleaks: $(find_gitleaks)"
+  else note "gitleaks missing — pacman -S gitleaks / brew install gitleaks / scoop install gitleaks"; fi
+
+  [ "$DRY" -eq 1 ] && { echo; echo "(dry run: nothing was written)"; return 0; }
   cmd_sync
+}
+
+cmd_uninstall() {
+  [ "${1:-}" = "--dry-run" ] && DRY=1
+  echo "removing this machine's bindings; the vault itself is untouched"
+  local rc f
+  path_rc_files | while IFS= read -r rc; do
+    block_remove "$rc" "path"; block_remove "$rc" "guards"
+  done
+  block_remove "$HOME/.claude/CLAUDE.md" "claude"
+  for f in "$HOME/.config/environment.d/10-brain-shims.conf" "$CONF_VAULT" "$(pick_bindir)/brain"; do
+    [ -e "$f" ] || continue
+    say "remove $f"
+    [ "$DRY" -eq 1 ] || rm -f "$f"
+  done
+  note "left alone: ~/.agents/AGENTS.md, the index in $STATE, and the vault"
+  [ "$DRY" -eq 1 ] && echo "(dry run: nothing was written)"
 }
 
 usage() {
@@ -600,7 +699,8 @@ brain — query and lint the vault. Markdown is canonical; the index is disposab
   brain log               zero-hit queries — the synonym backlog
   brain lint [--staged]   check bullet form; hard failures block a commit
   brain secrets [--staged|--history]  scan for credentials (gitleaks, with a fallback)
-  brain install           link the CLI, point git at bin/hooks, source the guards
+  brain install [--dry-run]    bind this machine to the vault
+  brain uninstall [--dry-run]  undo those bindings; the vault is untouched
 
 Zero-hit queries are recorded so the synonym table fills from real misses
 rather than guesswork; edit bin/synonyms.tsv and run 'brain sync'.
@@ -615,7 +715,8 @@ case "${1:-}" in
   log)     shift; cmd_log ;;
   lint)    shift; cmd_lint "$@" ;;
   secrets) shift; cmd_secrets "${1:---staged}" ;;
-  install) shift; cmd_install ;;
+  install)   shift; cmd_install "${1:-}" ;;
+  uninstall) shift; cmd_uninstall "${1:-}" ;;
   ""|-h|--help|help) usage ;;
   *) die "unknown command: $1 (try 'brain help')" ;;
 esac
