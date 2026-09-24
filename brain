@@ -340,12 +340,19 @@ cmd_install() {
   chmod +x "$VAULT/bin/hooks/"* "$VAULT/bin/brain"
   echo "repo hooks: $(git -C "$VAULT" config --get core.hooksPath)"
 
-  local rc="$HOME/.bashrc" line="[ -f \"$VAULT/bin/brain-guards.sh\" ] && . \"$VAULT/bin/brain-guards.sh\""
-  if ! grep -qF 'brain-guards.sh' "$rc" 2>/dev/null; then
-    printf '\n# Brain: refuse the commands that have cost the user settings before\n%s\n' "$line" >> "$rc"
-    echo "sourced brain-guards.sh from ~/.bashrc"
-  else
+  # Insert above the interactive early-return if there is one, so shells that
+  # source .bashrc non-interactively pick the guards up too.
+  local rc="$HOME/.bashrc"
+  local src="[ -f \"\$HOME/Documents/Brain/bin/brain-guards.sh\" ] && . \"\$HOME/Documents/Brain/bin/brain-guards.sh\""
+  if grep -qF 'brain-guards.sh' "$rc" 2>/dev/null; then
     echo "guards already sourced from ~/.bashrc"
+  elif grep -qF '[[ $- != *i* ]] && return' "$rc" 2>/dev/null; then
+    awk -v s="$src" '/^\[\[ \$- != \*i\* \]\] && return/ { print "# Brain guards: refuse the commands that have cost settings before."; print s; print "" } { print }' \
+      "$rc" > "$rc.brain" && mv "$rc.brain" "$rc"
+    echo "sourced brain-guards.sh above the interactive guard in ~/.bashrc"
+  else
+    printf '\n# Brain guards: refuse the commands that have cost settings before.\n%s\n' "$src" >> "$rc"
+    echo "sourced brain-guards.sh from ~/.bashrc"
   fi
   cmd_sync
 }
