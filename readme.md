@@ -44,6 +44,22 @@ Every query also records which bullets answered it, by handle. A bullet that no
 query has ever returned is a prune candidate with evidence behind it, which is
 what `doctor` reports once enough queries are logged to mean anything.
 
+## Secrets
+
+`brain secrets` runs gitleaks against the staged change, and the pre-commit hook
+refuses a commit that trips it. `.gitleaks.toml` is checked in: the stock rules
+plus two tuned for prose (a connection URI with an inline password, a credential
+assigned a literal), and an allowlist for the placeholders and credential *names*
+this vault records deliberately. Record a deliberate exception with a
+`gitleaks:allow` comment or an allowlist entry, never with `--no-verify`.
+
+The binary is resolved by explicit path, because `~/go/bin` is not on a
+non-interactive PATH and a gate that silently does not run is worse than none.
+Without gitleaks it falls back to six unambiguous patterns and says so; there is
+no 40-hex rule, since that is a git SHA and this vault is full of them.
+
+`brain secrets --history` scans every commit — run it before pushing anywhere new.
+
 ## Portability
 
 Linux, macOS, and Git Bash on Windows. The scripts avoid GNU-only constructs —

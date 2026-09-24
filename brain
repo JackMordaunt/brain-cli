@@ -369,6 +369,62 @@ cmd_doctor() {
 
 csv_core() { local o="" f; for f in $CORE; do o="$o${o:+,}'$f'"; done; printf '%s' "$o"; }
 
+# --------------------------------------------------------------- secrets ----
+# ~/go/bin is not on a non-interactive PATH on this machine, and the hook runs
+# non-interactively, so the scanner is resolved explicitly. A gate that
+# silently fails to run is worse than no gate.
+find_gitleaks() {
+  local c
+  for c in $HOME/go/bin/gitleaks /usr/bin/gitleaks /usr/local/bin/gitleaks /opt/homebrew/bin/gitleaks; do
+    [ -x "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  command -v gitleaks 2>/dev/null && return 0
+  return 1
+}
+
+# A floor for machines without gitleaks: only patterns that cannot plausibly be
+# anything else. No 40-hex rule — that is a git SHA, and this vault is full of
+# them.
+fallback_patterns() {
+  grep -nE \
+    -e 'BEGIN [A-Z ]*PRIVATE KEY' \
+    -e 'AKIA[0-9A-Z]{16}' \
+    -e 'gh[pousr]_[A-Za-z0-9]{36,}' \
+    -e 'xox[baprs]-[A-Za-z0-9-]{10,}' \
+    -e 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' \
+    -e '[0-9a-f]{64,}'
+}
+
+cmd_secrets() {
+  local mode="${1:---staged}" gl rc=0
+  gl=$(find_gitleaks) || gl=""
+
+  if [ -n "$gl" ]; then
+    case "$mode" in
+      --history) "$gl" git "$VAULT" --no-banner --redact --config "$VAULT/.gitleaks.toml" || rc=$? ;;
+      *)         "$gl" git "$VAULT" --staged --no-banner --redact --config "$VAULT/.gitleaks.toml" || rc=$? ;;
+    esac
+    [ "$rc" -eq 0 ] && echo "brain secrets: clean (gitleaks, $mode)"
+    return "$rc"
+  fi
+
+  echo "brain secrets: gitleaks not found — falling back to six built-in patterns." >&2
+  echo "  install it for the full ruleset: pacman -S gitleaks / brew install gitleaks / scoop install gitleaks" >&2
+  local hits
+  if [ "$mode" = "--history" ]; then
+    hits=$(git -C "$VAULT" log -p --no-color | fallback_patterns || true)
+  else
+    hits=$(git -C "$VAULT" diff --cached -U0 --no-color | fallback_patterns || true)
+  fi
+  if [ -n "$hits" ]; then
+    echo "brain secrets: possible secret in the change:" >&2
+    printf '%s\n' "$hits" | head -20 >&2
+    return 1
+  fi
+  echo "brain secrets: clean (built-in patterns, $mode)"
+  return 0
+}
+
 # ----------------------------------------------------------------- lint ----
 # Hard failures block a commit. Warnings never do. A line that does not parse
 # is skipped rather than rejected, so the bullet format never becomes
@@ -543,6 +599,7 @@ brain — query and lint the vault. Markdown is canonical; the index is disposab
   brain doctor            what is stale, thin, oversized, duplicated or orphaned
   brain log               zero-hit queries — the synonym backlog
   brain lint [--staged]   check bullet form; hard failures block a commit
+  brain secrets [--staged|--history]  scan for credentials (gitleaks, with a fallback)
   brain install           link the CLI, point git at bin/hooks, source the guards
 
 Zero-hit queries are recorded so the synonym table fills from real misses
@@ -557,6 +614,7 @@ case "${1:-}" in
   doctor)  shift; cmd_doctor ;;
   log)     shift; cmd_log ;;
   lint)    shift; cmd_lint "$@" ;;
+  secrets) shift; cmd_secrets "${1:---staged}" ;;
   install) shift; cmd_install ;;
   ""|-h|--help|help) usage ;;
   *) die "unknown command: $1 (try 'brain help')" ;;

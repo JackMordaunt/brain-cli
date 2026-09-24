@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# Brain pre-commit: the vault's form invariants, enforced rather than recalled.
+# Brain pre-commit: the vault's invariants, enforced rather than recalled.
 # Hard failures block; warnings are printed and ignored.
 set -uo pipefail
 root=$(git rev-parse --show-toplevel)
 brain="$root/bin/brain"
 [ -x "$brain" ] || exit 0          # tooling absent: never block a commit
-BRAIN_VAULT="$root" "$brain" lint --staged || {
+
+fail=0
+BRAIN_VAULT="$root" "$brain" lint --staged || fail=1
+BRAIN_VAULT="$root" "$brain" secrets --staged || fail=1
+
+if [ "$fail" -ne 0 ]; then
   echo
-  echo "Commit refused by brain lint. Fix the failures above, or commit with"
-  echo "--no-verify only if the rule itself is wrong (then fix the rule)."
+  echo "Commit refused. Fix the failures above, record a deliberate exception"
+  echo "(gitleaks:allow, or the allowlist in .gitleaks.toml), and try again."
+  echo "--no-verify only if the rule itself is wrong — then fix the rule."
   exit 1
-}
+fi
