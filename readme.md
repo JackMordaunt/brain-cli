@@ -9,7 +9,7 @@ rebuilds it.
 | `brain` | query and lint the vault (`find`, `sync`, `doctor`, `log`, `lint`, `install`) |
 | `hooks/pre-commit` | runs `brain lint --staged`; hard failures block the commit |
 | `hooks/commit-msg` | delegates to the global hook, which a repo-local `core.hooksPath` would otherwise shadow |
-| `brain-guards.sh` | shell functions that refuse commands which have cost settings before |
+| `shims/` | PATH shims that refuse commands the vault records as traps |
 | `synonyms.tsv` | query expansion; the vocabulary travels with the repo |
 
 ## Install
@@ -32,6 +32,17 @@ Every query is logged with its hit count. Zero-hit queries are the synonym
 backlog: they name the vocabulary the vault is missing, discovered from real
 misses instead of guessed in advance. `brain log` lists them; add rows to
 `synonyms.tsv` and re-run `brain sync`.
+
+Guards are PATH shims, not shell functions: `bash -c` never sources `~/.bashrc`,
+so a function guards only interactive shells. `brain install` puts `bin/shims`
+ahead of `/usr/share/omarchy/bin` in both `~/.bashrc` and
+`~/.config/environment.d/10-brain-shims.conf`; the latter covers every shell and
+every exec in the session, from the next login. Override one with
+`BRAIN_GUARD_OVERRIDE=1`.
+
+Every query also records which bullets answered it, by handle. A bullet that no
+query has ever returned is a prune candidate with evidence behind it, which is
+what `doctor` reports once enough queries are logged to mean anything.
 
 A line that does not parse is skipped, never rejected. The bullet format is
 young and must not become load-bearing.
