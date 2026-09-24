@@ -44,5 +44,24 @@ Every query also records which bullets answered it, by handle. A bullet that no
 query has ever returned is a prune candidate with evidence behind it, which is
 what `doctor` reports once enough queries are logged to mean anything.
 
+## Portability
+
+Linux, macOS, and Git Bash on Windows. The scripts avoid GNU-only constructs —
+no `find -printf`, no `mapfile`, no `readlink -f`, no `paste -s`, no
+`sqlite3 .import`. They need bash, POSIX text tools, and sqlite3 built with
+FTS5; `brain install` checks for it and names the package if it is missing.
+
+Guard coverage differs, because what a shell reads differs:
+
+| platform | what is covered |
+|----------|-----------------|
+| Linux | every shell and exec in the session, via `~/.config/environment.d` (from the next login) |
+| macOS | every zsh via `~/.zshenv`, and bash login shells via `~/.bash_profile` |
+| Windows (Git Bash) | shells that read `~/.bashrc` |
+
+Only Linux gives an unprivileged user a session-wide environment hook, so
+elsewhere a bare `bash -c` is not guarded. `brain install` says which case
+applies on the machine it runs on.
+
 A line that does not parse is skipped, never rejected. The bullet format is
 young and must not become load-bearing.

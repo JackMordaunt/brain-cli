@@ -8,11 +8,23 @@
 set -uo pipefail
 
 self=$(basename -- "$0")
-shim_dir=$(cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)
+# readlink -f is GNU-only; resolve the symlink chain by hand so the shim works
+# on macOS and in Git Bash too.
+resolve_dir() {
+  local p="$1" d
+  while [ -L "$p" ]; do
+    d=$(cd -- "$(dirname -- "$p")" && pwd -P)
+    p=$(readlink -- "$p")
+    case "$p" in /*) ;; *) p="$d/$p" ;; esac
+  done
+  (cd -- "$(dirname -- "$p")" && pwd -P)
+}
+shim_dir=$(resolve_dir "$0")
 
 real_path() {
   local p
-  p=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$shim_dir" | paste -sd: -)
+  p=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$shim_dir" | tr '\n' ':')
+  p=${p%:}
   PATH="$p" command -v -- "$self"
 }
 

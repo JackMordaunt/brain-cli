@@ -14,6 +14,25 @@ STALE_DAYS=90       # a fact older than this wants re-verification
 FIND_LIMIT=8
 FIND_BYTES=4000
 
+os_kind() {
+  case "$(uname -s 2>/dev/null)" in
+    Linux*)                 echo linux ;;
+    Darwin*)                echo macos ;;
+    MINGW*|MSYS*|CYGWIN*)   echo windows ;;
+    *)                      echo unknown ;;
+  esac
+}
+
+# GNU find's -printf and bash 4's mapfile are unavailable on macOS, so list
+# files the portable way and build the array with a read loop.
+list_md() { find . -name '*.md' ! -path './.git/*' -print | sed 's|^\./||' | LC_ALL=C sort; }
+
+require_sqlite() {
+  command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 is not installed (brew install sqlite / pacman -S sqlite / winget install SQLite.SQLite)"
+  sqlite3 :memory: "create virtual table t using fts5(a);" >/dev/null 2>&1 \
+    || die "this sqlite3 lacks FTS5; install a build with it enabled"
+}
+
 die() { printf 'brain: %s\n' "$*" >&2; exit 1; }
 # The index is disposable and rebuilt on demand, so no agent needs to know
 # that 'brain sync' exists: a missing or stale database resyncs itself.
@@ -94,12 +113,14 @@ emit_lines() {
 
 # ----------------------------------------------------------------- sync ----
 cmd_sync() {
+  require_sqlite
   mkdir -p "$STATE"
   cd "$VAULT" || die "no vault at $VAULT"
   local tmp="$DB.new"
   rm -f "$tmp"
-  local files
-  mapfile -t files < <(find . -name '*.md' -not -path './.git/*' -printf '%P\n' | sort)
+  local files _f
+  files=()
+  while IFS= read -r _f; do files+=("$_f"); done < <(list_md)
   [ "${#files[@]}" -gt 0 ] || die "no markdown found under $VAULT"
 
   {
@@ -130,7 +151,9 @@ SQL
 
   # Synonyms are checked into the repo so the vocabulary travels with it.
   if [ -f "$VAULT/bin/synonyms.tsv" ]; then
-    sqlite3 "$tmp" ".mode tabs" ".import --skip 1 '$VAULT/bin/synonyms.tsv' synonyms" 2>/dev/null
+    awk -F'\t' 'NR>1 && NF>=2 { gsub(/'"'"'/, "'"'"''"'"'", $1); gsub(/'"'"'/, "'"'"''"'"'", $2);
+      printf "insert into synonyms(term,expansion) values('"'"'%s'"'"','"'"'%s'"'"');\n", $1, $2 }' \
+      "$VAULT/bin/synonyms.tsv" | sqlite3 "$tmp"
   fi
 
   # The logs survive a rebuild: they are evidence, not derived data. Bullet row
@@ -363,44 +386,102 @@ cmd_lint() {
   [ "$fails" -eq 0 ]
 }
 
-# -------------------------------------------------------------- install ----
+# ------------------------------------------------------------- install ----
+on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; *) return 1 ;; esac; }
+
+# The same preference order the justfile standard uses for `install`.
+pick_bindir() {
+  local d
+  for d in "$HOME/.local/bin" "$HOME/bin" "${GOBIN:-}" "${GOPATH:+$GOPATH/bin}" "/usr/local/bin"; do
+    [ -n "$d" ] || continue
+    [ -d "$d" ] && [ -w "$d" ] && { printf '%s\n' "$d"; return 0; }
+  done
+  mkdir -p "$HOME/.local/bin" 2>/dev/null && { printf '%s\n' "$HOME/.local/bin"; return 0; }
+  return 1
+}
+
+# Which files a login shell reads differs per platform: zsh is the macOS
+# default, Git Bash reads .bashrc, and only Linux has environment.d.
+path_rc_files() {
+  case "$(os_kind)" in
+    macos)   printf '%s\n' "$HOME/.zshenv" "$HOME/.bash_profile" ;;
+    windows) printf '%s\n' "$HOME/.bashrc" ;;
+    *)       printf '%s\n' "$HOME/.bashrc" ;;
+  esac
+}
+
+# Prepend a directory to PATH in one rc file, above an interactive early-return
+# if the file has one, so shells that source it non-interactively benefit too.
+add_path_line() {
+  local rc="$1" dir="$2" note="$3"
+  [ -e "$rc" ] || : > "$rc"
+  grep -qF "$dir" "$rc" 2>/dev/null && { echo "  $rc: already there"; return 0; }
+  if grep -qF '[[ $- != *i* ]] && return' "$rc" 2>/dev/null; then
+    awk -v d="$dir" -v n="$note" '
+      /^\[\[ \$- != \*i\* \]\] && return/ && !done {
+        print "# " n; print "export PATH=\"" d ":$PATH\""; print ""; done=1
+      } { print }' "$rc" > "$rc.brain" && mv "$rc.brain" "$rc"
+    echo "  $rc: added above the interactive guard"
+  else
+    printf '\n# %s\nexport PATH="%s:$PATH"\n' "$note" "$dir" >> "$rc"
+    echo "  $rc: appended"
+  fi
+}
+
 cmd_install() {
-  mkdir -p "$HOME/.local/bin" "$STATE"
-  ln -sf "$VAULT/bin/brain" "$HOME/.local/bin/brain"
-  echo "linked ~/.local/bin/brain"
+  require_sqlite
+  local os bindir shims
+  os=$(os_kind)
+  shims="$VAULT/bin/shims"
+  bindir=$(pick_bindir) || die "no writable directory for the binary; set GOBIN or create ~/.local/bin"
+  mkdir -p "$STATE"
+
+  chmod +x "$VAULT/bin/brain" "$VAULT/bin/hooks/"* "$VAULT/bin/shims/"* 2>/dev/null
+
+  # Windows filesystems often refuse symlinks; a copy is correct there, at the
+  # cost of needing `brain install` again after an update.
+  if ln -sf "$VAULT/bin/brain" "$bindir/brain" 2>/dev/null; then
+    echo "linked $bindir/brain"
+  else
+    cp -f "$VAULT/bin/brain" "$bindir/brain" && chmod +x "$bindir/brain"
+    echo "copied $bindir/brain (no symlink support; re-run install after an update)"
+  fi
 
   git -C "$VAULT" config core.hooksPath "$VAULT/bin/hooks"
-  chmod +x "$VAULT/bin/hooks/"* "$VAULT/bin/brain" "$VAULT/bin/shims/"*
   echo "repo hooks: $(git -C "$VAULT" config --get core.hooksPath)"
 
-  # The guards are PATH shims, so they must precede /usr/share/omarchy/bin.
-  # Two places, because neither alone is enough: environment.d covers the whole
-  # graphical session (after the next login), .bashrc covers shells started
-  # outside it and takes effect now.
-  local shims="$VAULT/bin/shims"
-  local envd="$HOME/.config/environment.d/10-brain-shims.conf"
-  mkdir -p "$HOME/.config/environment.d"
-  printf '# Brain guards: refuse commands recorded as traps. See %s/readme.md\nPATH=%s:${PATH}\n' \
-    "$VAULT/bin" "$shims" > "$envd"
-  echo "wrote $envd (applies at next login)"
+  echo "PATH for the CLI:"
+  if on_path "$bindir"; then
+    echo "  $bindir is already on PATH"
+  else
+    local rc
+    path_rc_files | while IFS= read -r rc; do
+      add_path_line "$rc" "$bindir" "brain: the vault's CLI"
+    done
+    echo "  open a new shell, or: export PATH=\"$bindir:\$PATH\""
+  fi
 
+  echo "PATH for the guards:"
+  # Supersede the earlier shell-function guard, which covered interactive shells only.
   local rc="$HOME/.bashrc"
-  # supersede the earlier shell-function guard, which covered only interactive shells
   if grep -qF 'brain-guards.sh' "$rc" 2>/dev/null; then
     grep -v 'brain-guards.sh' "$rc" | grep -v '^# Brain guards: refuse the commands that have cost settings before\.$' \
       > "$rc.brain" && mv "$rc.brain" "$rc"
-    echo "removed the old shell-function guard from ~/.bashrc"
+    echo "  removed the superseded shell-function guard from ~/.bashrc"
   fi
-  if grep -qF "$shims" "$rc" 2>/dev/null; then
-    echo "shims already on PATH in ~/.bashrc"
-  elif grep -qF '[[ $- != *i* ]] && return' "$rc" 2>/dev/null; then
-    awk -v s="$shims" '/^\[\[ \$- != \*i\* \]\] && return/ { print "# Brain guards: refuse commands the vault records as traps."; print "# Above the interactive guard so non-interactive shells get them too."; print "export PATH=\"" s ":$PATH\""; print "" } { print }' \
-      "$rc" > "$rc.brain" && mv "$rc.brain" "$rc"
-    echo "put the shims on PATH above the interactive guard in ~/.bashrc"
+  path_rc_files | while IFS= read -r rc; do
+    add_path_line "$rc" "$shims" "Brain guards: refuse commands the vault records as traps"
+  done
+  if [ "$os" = linux ] && [ -d "$HOME/.config" ]; then
+    mkdir -p "$HOME/.config/environment.d"
+    printf '# Brain guards: refuse commands recorded as traps. See %s/readme.md\nPATH=%s:${PATH}\n' \
+      "$VAULT/bin" "$shims" > "$HOME/.config/environment.d/10-brain-shims.conf"
+    echo "  wrote ~/.config/environment.d/10-brain-shims.conf — covers every shell in the session, from the next login"
   else
-    printf '\n# Brain guards: refuse commands the vault records as traps.\nexport PATH="%s:$PATH"\n' "$shims" >> "$rc"
-    echo "put the shims on PATH in ~/.bashrc"
+    echo "  note: on $os only shells that read the files above are covered; a plain"
+    echo "        non-interactive shell reads none of them"
   fi
+
   cmd_sync
 }
 
