@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Rebuild the index after every commit: exact, and simpler than a timer.
+# Never fails a commit — the index is disposable.
+set -uo pipefail
+root=$(git rev-parse --show-toplevel)
+[ -x "$root/bin/brain" ] && BRAIN_VAULT="$root" "$root/bin/brain" sync >/dev/null 2>&1
+exit 0
