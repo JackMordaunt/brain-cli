@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# A repo-local core.hooksPath shadows the global one, so delegate to it here:
+# the global commit-msg hook rejects Co-authored-by trailers and must keep running.
+set -uo pipefail
+global="$HOME/.config/git/hooks/commit-msg"
+[ -x "$global" ] && exec "$global" "$@"
+exit 0
