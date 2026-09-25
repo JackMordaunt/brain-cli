@@ -3,5 +3,8 @@
 # Never fails a commit — the index is disposable.
 set -uo pipefail
 root=$(git rev-parse --show-toplevel)
-[ -x "$root/bin/brain" ] && BRAIN_VAULT="$root" "$root/bin/brain" sync >/dev/null 2>&1
+hookdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+for c in "$hookdir/../brain" "$root/bin/brain" "$(command -v brain 2>/dev/null)"; do
+  [ -n "$c" ] && [ -x "$c" ] && { BRAIN_VAULT="$root" "$c" sync >/dev/null 2>&1; break; }
+done
 exit 0

@@ -3,8 +3,24 @@
 # Hard failures block; warnings are printed and ignored.
 set -uo pipefail
 root=$(git rev-parse --show-toplevel)
-brain="$root/bin/brain"
-[ -x "$brain" ] || exit 0          # tooling absent: never block a commit
+
+# The CLI ships with the hooks, not with the repository being committed, so it
+# is resolved as this hook's own sibling. `$root/bin/brain` only ever worked
+# because the tool happened to live in the vault; once it moved out that path
+# found nothing and this gate became a silent pass (observed 2026-09-25, when an
+# undated bullet was committed clean). `just test` now asserts the gate fires
+# from a repository that does not contain the CLI.
+hookdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+brain=""
+for c in "$hookdir/../brain" "$root/bin/brain" "$(command -v brain 2>/dev/null)"; do
+  [ -n "$c" ] && [ -x "$c" ] && { brain=$c; break; }
+done
+if [ -z "$brain" ]; then
+  # Still non-blocking, but never again silent: a gate that cannot run should
+  # say so rather than look like a pass.
+  echo "pre-commit: brain CLI not found — lint and secret gates DID NOT RUN" >&2
+  exit 0
+fi
 
 fail=0
 BRAIN_VAULT="$root" "$brain" lint --staged || fail=1

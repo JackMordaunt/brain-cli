@@ -55,6 +55,23 @@ test: build
     out=$(bin/brain recall playh --sessions --prefix)
     case "$out" in *'sess-one'*) echo "ok recall --prefix" ;; *) echo "FAIL recall --prefix"; exit 1 ;; esac
 
+    # The hooks must find the CLI as their own sibling, not inside the repo
+    # being committed: when the tool lived in the vault, `$root/bin/brain`
+    # worked by accident, and splitting them turned the gate into a silent pass.
+    hookrepo="$BRAIN_STATE/hookrepo"
+    mkdir -p "$hookrepo" && cp -r testdata/vault/AI "$hookrepo/"
+    git -C "$hookrepo" init -q
+    git -C "$hookrepo" config user.email t@example.com
+    git -C "$hookrepo" config user.name test
+    git -C "$hookrepo" config core.hooksPath "$PWD/bin/hooks"
+    printf -- '- **undated** (aliases: x) — a bullet with no trailing date — fixture\n' >> "$hookrepo/AI/MEMORY.md"
+    git -C "$hookrepo" add -A
+    if git -C "$hookrepo" commit -q -m "probe" 2>/dev/null; then
+      echo "FAIL: pre-commit let an undated bullet through"; exit 1
+    else
+      echo "ok pre-commit gate fires from outside the repo"
+    fi
+
     # Re-syncing the same fixture must not double-count: ids are the key.
     before=$(bin/brain recall --sync | tail -1)
     after=$(bin/brain recall --sync | tail -1)
