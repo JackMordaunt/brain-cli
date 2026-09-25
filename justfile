@@ -31,6 +31,28 @@ test: build
     bin/brain locate --tool >/dev/null && echo "ok locate --tool"
     test "$(bin/brain locate)" = "$BRAIN_VAULT" && echo "ok locate"
 
+    # recall runs against a fixture source, never anyone's real transcripts.
+    export BRAIN_ADAPTERS="$PWD/testdata/adapters"
+    export FIXTURE_TRANSCRIPTS="$PWD/testdata/transcripts"
+    export XDG_CONFIG_HOME="$BRAIN_STATE/config"
+    bin/brain recall playhead >/dev/null 2>&1 && { echo "FAIL: recall with no source should exit non-zero"; exit 1; } || echo "ok recall needs a source"
+    bin/brain recall --enable fixture >/dev/null
+    bin/brain recall --sync >/dev/null
+    out=$(bin/brain recall playhead)
+    case "$out" in *'[playhead]'*) echo "ok recall snippet" ;; *) echo "FAIL recall snippet"; exit 1 ;; esac
+    case "$out" in *'The playhead session'*) echo "ok recall title" ;; *) echo "FAIL recall title"; exit 1 ;; esac
+    case "$out" in *makepkg*) echo "FAIL recall leaked an unrelated turn"; exit 1 ;; *) echo "ok recall scoped" ;; esac
+    out=$(bin/brain recall playhead --exclude sess-one 2>&1 || true)
+    case "$out" in *'no hits'*) echo "ok recall --exclude" ;; *) echo "FAIL recall --exclude"; exit 1 ;; esac
+    out=$(bin/brain recall --full f1)
+    case "$out" in *'frame you clicked'*) echo "ok recall --full" ;; *) echo "FAIL recall --full"; exit 1 ;; esac
+    out=$(bin/brain recall playhead --json)
+    printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[0]["title"]' && echo "ok recall --json"
+    # Re-syncing the same fixture must not double-count: ids are the key.
+    before=$(bin/brain recall --sync | tail -1)
+    after=$(bin/brain recall --sync | tail -1)
+    test "$before" = "$after" && echo "ok recall idempotent ($after)"
+
 # Put the CLI on PATH and bind this machine to a vault.
 install VAULT:
     bin/brain install {{VAULT}}

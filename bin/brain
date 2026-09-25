@@ -19,6 +19,9 @@ CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/brain"
 CONF_VAULT="$CONF_DIR/vault"
 STATE="${BRAIN_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/brain}"
 DB="$STATE/brain.db"
+RECALL_DB="$STATE/transcripts.db"
+CONF_SOURCES="$CONF_DIR/sources"
+RECALL_LIMIT=10
 CORE="AI/MEMORY.md AI/LEARNINGS.md AI/TUNINGS.md"
 MAXLEN=400          # soft cap on a bullet's fact text
 STALE_DAYS=90       # a fact older than this wants re-verification
@@ -520,6 +523,216 @@ cmd_lint() {
   [ "$fails" -eq 0 ]
 }
 
+# ---------------------------------------------------------------- recall ----
+# Transcripts are a second source, and deliberately not vault content: they are
+# machine-written, never committed, and their formats belong to other people's
+# programs. So they live in their own database, behind their own command, and
+# the parsing lives in bin/adapters/<agent> — one script per agent, replaceable
+# when that agent changes its format without touching anything here.
+#
+# What `brain find` answers is what was concluded and is still true. What
+# `brain recall` answers is what was actually said, which is not the same thing
+# and is not always right: a retracted claim reads exactly like a sound one.
+
+ADAPTER_DIR="${BRAIN_ADAPTERS:-$TOOL/bin/adapters}"
+adapters_all() { ls "$ADAPTER_DIR" 2>/dev/null; }
+
+adapters_on() {
+  [ -r "$CONF_SOURCES" ] || return 0
+  local a
+  while IFS= read -r a; do
+    [ -n "$a" ] || continue
+    case "$a" in \#*) continue ;; esac
+    [ -x "$ADAPTER_DIR/$a" ] && printf '%s\n' "$a"
+  done < "$CONF_SOURCES"
+}
+
+recall_schema() {
+  sqlite3 "$RECALL_DB" <<'SQL'
+create table if not exists source(path text primary key, adapter text);
+create table if not exists turn(
+  id text primary key, adapter text, session text, path text,
+  ts text, role text, title text, cwd text, body text);
+create virtual table if not exists turn_fts
+  using fts5(body, title, content='turn', content_rowid='rowid');
+create trigger if not exists turn_ai after insert on turn begin
+  insert into turn_fts(rowid, body, title) values (new.rowid, new.body, new.title);
+end;
+create trigger if not exists turn_ad after delete on turn begin
+  insert into turn_fts(turn_fts, rowid, body, title)
+    values ('delete', old.rowid, old.body, old.title);
+end;
+SQL
+}
+
+# TSV in, SQL in. Turns are identified by the agent's own id, so a session
+# resumed into a new file re-inserts nothing — and resuming is common: of 69207
+# Claude Code message ids on this machine, 2606 appeared in more than one
+# transcript (2026-09-25, counting duplicates in `jq -r .uuid` across
+# ~/.claude/projects). Counting those twice would skew every ranking.
+recall_rows_to_sql() {
+  awk -F'\t' -v a="$1" '
+    function esc(s) { gsub(/'"'"'/, "'"'"''"'"'", s); return s }
+    NF >= 7 {
+      body = $7
+      for (i = 8; i <= NF; i++) body = body " " $i
+      printf "insert or ignore into turn(id,adapter,session,path,ts,role,title,cwd,body) values('"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"','"'"'%s'"'"');\n",
+        esc($1), esc(a), esc($4), esc(FILE), esc($2), esc($3), esc($5), esc($6), esc(body)
+    }
+  ' FILE="$2"
+}
+
+# The SQL for one transcript. Kept separate from the writing so a batch can
+# concatenate many and open the database once.
+recall_file_sql() {
+  local adapter=$1 f=$2
+  "$ADAPTER_DIR/$adapter" --emit "$f" | recall_rows_to_sql "$adapter" "$f"
+  printf "insert or replace into source(path,adapter) values('%s','%s');\n" \
+    "${f//\'/\'\'}" "$adapter"
+}
+
+
+# Everything an adapter can see, or only what moved since the last pass.
+# Re-reading a whole transcript is cheap enough that there is no byte offset to
+# keep and no partial trailing line to get wrong: on 2026-09-25 the largest
+# transcript here (8.7 MB) parsed in 57ms and a live one in 14ms, so changed
+# files are simply read again and the id primary key absorbs the overlap.
+recall_sync() {
+  local full=${1:-} a stamp changed n=0 total=0
+  recall_schema
+  for a in $(adapters_on); do
+    stamp="$STATE/recall-$a.stamp"
+    changed="$STATE/recall-$a.changed"
+    if [ -n "$full" ] || [ ! -f "$stamp" ]; then
+      "$ADAPTER_DIR/$a" --list > "$changed" 2>/dev/null || : > "$changed"
+    else
+      "$ADAPTER_DIR/$a" --list 2>/dev/null \
+        | while IFS= read -r f; do [ "$f" -nt "$stamp" ] && printf '%s\n' "$f"; done > "$changed"
+    fi
+    # grep -c prints 0 and exits non-zero when nothing matches (POSIX: no lines
+    # selected is status 1), so a `|| echo 0` appends a second zero and every
+    # later arithmetic fails on the two-line value.
+    n=$(grep -c '^' < "$changed" 2>/dev/null); n=${n:-0}
+    total=$((total + n))
+    if [ "$n" -gt 0 ]; then
+      { printf 'pragma journal_mode=wal;\nbegin;\n'
+        while IFS= read -r f; do recall_file_sql "$a" "$f"; done < "$changed"
+        printf 'commit;\n'
+      } | sqlite3 "$RECALL_DB" >/dev/null 2>&1 || true
+    fi
+    # A transcript that disappeared takes its turns with it.
+    if [ -n "$full" ]; then
+      "$ADAPTER_DIR/$a" --list 2>/dev/null | sort > "$changed.now"
+      sqlite3 "$RECALL_DB" "select path from source where adapter='$a'" 2>/dev/null | sort > "$changed.was"
+      comm -13 "$changed.now" "$changed.was" | while IFS= read -r gone; do
+        [ -n "$gone" ] || continue
+        sqlite3 "$RECALL_DB" "delete from turn where path='${gone//\'/\'\'}';
+                              delete from source where path='${gone//\'/\'\'}';" 2>/dev/null
+      done
+      rm -f "$changed.now" "$changed.was"
+    fi
+    : > "$stamp"
+    rm -f "$changed"
+  done
+  printf '%s\n' "$total"
+}
+
+recall_enabled_or_die() {
+  local on; on=$(adapters_on)
+  [ -n "$on" ] && return 0
+  echo "brain recall: no transcript sources enabled." >&2
+  echo >&2
+  echo "  available: $(adapters_all | tr '\n' ' ')" >&2
+  echo "  enable one: brain recall --enable claude" >&2
+  return 1
+}
+
+cmd_recall() {
+  local limit=$RECALL_LIMIT json=0 full="" terms=()
+  local exclude="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+  # Its own transcript is on disk and will be picked up by the next sync, so
+  # without this an agent asking whether it has discussed something finds its
+  # own current reasoning. A conversation resumed into a second file still has
+  # its earlier half under another id; --all turns the filter off entirely.
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --sync)     shift; recall_enabled_or_die || return 1
+                  printf 'ingested %s transcript(s)\n' "$(recall_sync full)"
+                  sqlite3 "$RECALL_DB" "select 'turns: ' || count(*) from turn;" 2>/dev/null
+                  return 0 ;;
+      --sources)  local a
+                  for a in $(adapters_all); do
+                    if adapters_on | grep -qx "$a"; then printf '  %-8s enabled\n' "$a"
+                    else printf '  %-8s disabled\n' "$a"; fi
+                  done
+                  return 0 ;;
+      --enable)   shift; [ -n "${1:-}" ] || die "recall --enable <adapter>"
+                  [ -x "$ADAPTER_DIR/$1" ] || die "no such adapter: $1 (have: $(adapters_all | tr '\n' ' '))"
+                  mkdir -p "$CONF_DIR"; adapters_on | grep -qx "$1" || printf '%s\n' "$1" >> "$CONF_SOURCES"
+                  echo "recall: $1 enabled"; return 0 ;;
+      --disable)  shift; [ -n "${1:-}" ] || die "recall --disable <adapter>"
+                  [ -f "$CONF_SOURCES" ] && { grep -vx "$1" "$CONF_SOURCES" > "$CONF_SOURCES.tmp" || true
+                    mv "$CONF_SOURCES.tmp" "$CONF_SOURCES"; }
+                  echo "recall: $1 disabled"; return 0 ;;
+      --full)     shift; [ -n "${1:-}" ] || die "recall --full <turn-id>"
+                  sqlite3 -separator '' "$RECALL_DB" "
+                    select title || char(10) || ts || '  ' || role || '  ' || cwd || char(10) || char(10) || body
+                    from turn where id like '${1//\'/\'\'}%' limit 1;" 2>/dev/null
+                  return 0 ;;
+      --limit)    shift; limit=${1:-$RECALL_LIMIT}; shift ;;
+      --exclude)  shift; exclude=${1:-}; shift ;;
+      --json)     json=1; shift ;;
+      --all)      exclude=""; shift ;;
+      -*)         die "recall: unknown flag $1" ;;
+      *)          terms+=("$1"); shift ;;
+    esac
+  done
+  recall_enabled_or_die || return 1
+  [ "${#terms[@]}" -gt 0 ] || die "usage: brain recall <terms...>"
+  recall_schema
+  recall_sync >/dev/null
+
+  # snippet() and bm25() are FTS5 auxiliary functions: the docs require them in
+  # a query that reads the fts table directly, and sqlite 3.53 rejects them
+  # ("unable to use function bm25 in the requested context") once the call sits
+  # behind an aggregate or a window. So both are computed in the CTE that does
+  # the MATCH, and the join happens afterwards.
+  local m t esc
+  m=""
+  for t in "${terms[@]}"; do
+    esc=${t//\"/}
+    m="$m${m:+ AND }\"$esc\""
+  done
+
+  local where=""
+  [ -n "$exclude" ] && where="and t.session <> '${exclude//\'/\'\'}'"
+
+  local out
+  out=$(sqlite3 -separator $'\t' "$RECALL_DB" "
+    with hit(rid, snip, n) as (
+      select rowid, snippet(turn_fts, 0, '[', ']', ' … ', 14),
+             bm25(turn_fts, 1.0, 2.0)
+      from turn_fts where turn_fts match '${m//\'/\'\'}'
+      order by rank limit $((limit * 4))
+    )
+    select substr(t.id,1,8), substr(t.ts,1,10), t.adapter, t.title, h.snip
+    from hit h join turn t on t.rowid = h.rid
+    where 1=1 $where
+    order by h.n limit $limit;" 2>&1)
+
+  if [ -z "$out" ]; then echo "no hits for: ${terms[*]}"; return 1; fi
+  case "$out" in *"Error"*|*"error"*) printf '%s\n' "$out" >&2; return 1 ;; esac
+
+  if [ "$json" -eq 1 ]; then
+    awk -F'\t' 'BEGIN{print "["} { if (NR>1) print ",";
+      gsub(/\\/,"\\\\",$5); gsub(/"/,"\\\"",$5); gsub(/"/,"\\\"",$4)
+      printf "{\"id\":\"%s\",\"date\":\"%s\",\"agent\":\"%s\",\"title\":\"%s\",\"snippet\":\"%s\"}", $1,$2,$3,$4,$5 }
+      END{print "]"}' <<< "$out"
+  else
+    awk -F'\t' '{ printf "%s  %s  %s\n    %s\n    %s\n\n", $2, $3, $4, $5, $1 }' <<< "$out"
+  fi
+}
+
 # ------------------------------------------------------------- install ----
 # Everything install writes to a file the user owns goes inside a tagged block,
 # so it can be replaced on re-install and removed by `brain uninstall` without
@@ -743,6 +956,8 @@ brain — query and lint the vault. Markdown is canonical; the index is disposab
   brain locate [--native] absolute path to the vault, for agents and scripts
   brain locate --tool     absolute path to this CLI's own checkout
   brain find <terms...>   search bullets, handle matches ranked first
+  brain recall <terms...> search agent transcripts: what was said, not what is true
+    --sync --sources --enable <a> --disable <a> --full <id> --limit N --json
   brain sync              rebuild the index from markdown
   brain doctor            what is stale, thin, oversized, duplicated or orphaned
   brain log               zero-hit queries — the synonym backlog
@@ -761,6 +976,7 @@ USAGE
 
 case "${1:-}" in
   find)    shift; cmd_find "$@" ;;
+  recall)  shift; cmd_recall "$@" ;;
   locate)  shift; cmd_locate "${1:-}" ;;
   sync)    shift; cmd_sync ;;
   doctor)  shift; cmd_doctor ;;

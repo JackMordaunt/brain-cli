@@ -25,6 +25,7 @@ A single checkout holding both still works: if the directory above `bin/` has an
 
 ```
 brain find <terms...>   search bullets; handle matches rank above body matches
+brain recall <terms...> search agent transcripts (see below)
 brain locate            absolute path to the vault, for agents and scripts
 brain sync              rebuild the index
 brain doctor            what is stale, thin, oversized, duplicated or orphaned
@@ -32,6 +33,50 @@ brain log               zero-hit queries — the synonym backlog
 brain lint [--staged]   check bullet form; hard failures block a commit
 brain secrets           scan for credentials (gitleaks, with a built-in fallback)
 ```
+
+## Recall — searching transcripts
+
+`brain find` answers what was concluded and is still true. `brain recall`
+answers what was actually *said*, across your agents' transcripts:
+
+```
+brain recall --enable claude      # opt in, once, per agent
+brain recall <terms...>           # ranked snippets, newest agent formats included
+brain recall --full <id>          # one turn in full
+brain recall --sync               # full re-ingest; normally automatic
+brain recall --sources            # which adapters exist and which are on
+```
+
+Transcripts are not vault content. They are machine-written, never committed,
+and their formats belong to other people's programs — so they live in their own
+database (`transcripts.db`), behind their own command, and nothing about them
+reaches the markdown.
+
+A turn is identified by the agent's own id, so a session resumed into a new file
+re-inserts nothing. Results are snippets, not whole turns: ten hits cost about
+half a kilobyte rather than the ~20 KB the full bodies would.
+
+**A recall hit is evidence of what was said, not of what is true.** A claim
+retracted three turns later reads exactly like a sound one. Vault bullets and
+the current code outrank it.
+
+The current session is excluded by default, so an agent asking whether it has
+discussed something does not find itself. A conversation that was resumed into
+a second file can still surface its earlier half; `--all` turns the filter off.
+
+### Adding an agent
+
+One executable in `bin/adapters/`, and `brain` needs no change:
+
+```
+<adapter> --list          every transcript path on this machine
+<adapter> --emit <path>   that transcript's turns, one TSV row each:
+                          id, timestamp, role, session, title, cwd, body
+```
+
+A transcript with no title is a headless API run, not a conversation, and should
+emit nothing — that is the difference between ~2300 files and the ~260 worth
+recalling.
 
 ## The vault's shape
 
@@ -59,6 +104,7 @@ suite against it, so the tests pass on a machine with no notes at all.
 | `bin/hooks/post-commit` | resyncs the index after every commit |
 | `bin/shims/` | PATH shims that refuse commands the vault records as traps |
 | `bin/synonyms.tsv` | query expansion; the vocabulary ships with the CLI |
+| `bin/adapters/` | one per agent; turns its transcripts into rows `brain recall` can index |
 | `testdata/vault/` | the fixture the test suite runs against |
 
 ## Requirements

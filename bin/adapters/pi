@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# pi transcripts — ~/.pi/agent/sessions/<cwd-slug>/<timestamp>_<id>.jsonl
+#
+#   pi --list          every transcript on this machine, one path per line
+#   pi --emit <path>   that transcript's turns, as TSV
+#
+# Same columns and the same no-title-means-not-a-conversation rule as the
+# claude adapter; only the record shape differs. The title is read from a
+# `custom` record whose customType is conversation-title, with `session_info`
+# as the fallback — the two places pi was observed to write it on 2026-09-25;
+# see the grep pair in emit(). If pi changes that, this file is what changes.
+set -uo pipefail
+
+ROOT="${PI_HOME:-$HOME/.pi}/agent/sessions"
+
+emit() {
+  local f=$1 sid title cwd
+  [ -f "$f" ] || return 0
+
+  title=$(grep -h '"conversation-title"' "$f" 2>/dev/null | tail -1 \
+          | jq -r '.data.title // empty' 2>/dev/null || true)
+  [ -n "$title" ] || title=$(grep -h '"type":"session_info"' "$f" 2>/dev/null | tail -1 \
+          | jq -r '.name // empty' 2>/dev/null || true)
+  [ -n "$title" ] || return 0
+
+  sid=$(head -1 "$f" | jq -r '.id // empty' 2>/dev/null || true)
+  if [ -z "$sid" ]; then sid=${f##*/}; sid=${sid%.jsonl}; sid=${sid#*_}; fi
+  cwd=$(head -1 "$f" | jq -r '.cwd // empty' 2>/dev/null || true)
+
+  jq -r --arg sid "$sid" --arg title "$title" --arg cwd "${cwd:-}" '
+    select(.type == "message" and (.message.role == "user" or .message.role == "assistant"))
+    | (.message.content
+       | if type == "string" then .
+         else ([.[]? | select(.type == "text") | .text] | join("\n")) end) as $b
+    | select($b != null and ($b | length) > 0)
+    | select(($b | startswith("<system-reminder>") or startswith("<command-name>")) | not)
+    | select(.id != null)
+    | [.id, (.timestamp // ""), .message.role, $sid, $title, $cwd,
+       ($b | gsub("[[:space:]]+"; " "))] | @tsv
+  ' "$f" 2>/dev/null || true
+}
+
+case "${1:-}" in
+  --list) [ -d "$ROOT" ] && find "$ROOT" -name '*.jsonl' -type f 2>/dev/null; exit 0 ;;
+  --emit) emit "${2:?usage: pi --emit <path>}" ;;
+  *)      echo "usage: pi --list | --emit <path>" >&2; exit 2 ;;
+esac
