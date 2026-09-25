@@ -617,6 +617,7 @@ cmd_install() {
     case "$arg" in
       --dry-run) DRY=1 ;;
       -*)        die "install: unknown flag $arg" ;;
+      "")        ;;
       *)         [ -d "$arg" ] || die "install: no such directory: $arg"
                  VAULT=$(cd "$arg" && pwd -P) ;;
     esac
@@ -766,8 +767,8 @@ case "${1:-}" in
   log)     shift; cmd_log ;;
   lint)    shift; cmd_lint "$@" ;;
   secrets) shift; cmd_secrets "${1:---staged}" ;;
-  install)   shift; cmd_install "${1:-}" ;;
-  uninstall) shift; cmd_uninstall "${1:-}" ;;
+  install)   shift; cmd_install "$@" ;;
+  uninstall) shift; cmd_uninstall "$@" ;;
   ""|-h|--help|help) usage ;;
   *) die "unknown command: $1 (try 'brain help')" ;;
 esac
