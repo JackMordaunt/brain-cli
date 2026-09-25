@@ -1,0 +1,41 @@
+# The default ruleset `brain secrets` applies. A vault that needs its own
+# exceptions — the specific credential names it records, say — puts a
+# .gitleaks.toml at its root and that one is used instead.
+#
+# The stock rules target code repositories — cloud keys, CI tokens. A notes
+# vault leaks differently: a connection string or a password pasted into prose.
+# The extra rules below cover that shape; the allowlist covers the placeholders
+# and identifier *names* this vault legitimately records.
+
+title = "brain (default ruleset)"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "vault-connection-string"
+description = "connection URI carrying an inline password"
+regex = '''(?i)\b(postgres(ql)?|mysql|mongodb(\+srv)?|redis|amqp|ftp)://[^:\s/@]+:[^@\s]{6,}@'''
+tags = ["vault", "prose"]
+
+[[rules]]
+id = "vault-inline-credential"
+description = "a credential assigned a literal value in prose"
+regex = '''(?i)\b(pass(word|phrase)?|secret|token|api[_-]?key|access[_-]?key)\b\s*[:=]\s*["']?[A-Za-z0-9/+_.-]{16,}["']?'''
+tags = ["vault", "prose"]
+
+[allowlist]
+description = "placeholders, identifier names, and the gate's own test fixture"
+regexTarget = "line"
+regexes = [
+  # Shell or template placeholders standing in for the real value.
+  '''\$\{?[A-Z_][A-Z0-9_]*\}?''',
+  '''<[A-Za-z][^>\n]{0,40}>''',
+  '''\b(REDACTED|CHANGEME|EXAMPLE|xxx+|\*{3,}|\.{3})\b''',
+  # A bare SCREAMING_SNAKE identifier is the *name* of a credential, which a
+  # vault records deliberately, not its value.
+  '''(?i)\b[A-Z][A-Z0-9]*(_[A-Z0-9]+)+\b(?!\s*[:=]\s*\S)''',
+]
+paths = [
+  '''\.gitleaks\.toml$''',
+]

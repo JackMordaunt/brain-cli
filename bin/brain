@@ -3,6 +3,16 @@
 #
 # Markdown under the vault is canonical. The SQLite database is a disposable
 # index rebuilt from it; delete it at any time and `brain sync` restores it.
+#
+# Two roots, and they are not the same thing:
+#
+#   TOOL   this repository — the CLI, its hooks, shims and synonyms. Public,
+#          distributable, carries no notes.
+#   VAULT  the markdown someone keeps. Private, theirs, committed separately.
+#
+# A checkout that holds both still works: if the directory above bin/ has an
+# AI/ in it, that is the vault too. That is how this started, and splitting the
+# repositories must not strand an existing clone.
 set -uo pipefail
 
 CONF_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/brain"
@@ -37,27 +47,34 @@ resolve_dir() {
   (cd -- "$(dirname -- "$p")" && pwd -P)
 }
 
+# The tool is wherever this script is: bin/brain, so one directory up. That is
+# always knowable, needs no config, and is what a clone runs from.
+TOOL=$(resolve_dir "$0"); TOOL=${TOOL%/bin}
+
 # Where the vault is, in order of authority:
 #   $BRAIN_VAULT        an explicit override, for a second clone or a test
-#   the script's own location, when it sits inside a checkout — so running
-#                       bin/brain from a clone binds to THAT clone, not to
-#                       whichever one was installed first
-#   ~/.config/brain/vault   written by `brain install`; the fallback for
-#                       Windows, where install copies the script and its
+#   the script's own location, when that checkout holds notes too — the
+#                       combined layout this repository used to have, kept so
+#                       an existing clone keeps working after the split
+#   ~/.config/brain/vault   written by `brain install`; the normal answer once
+#                       tool and vault are separate repositories, and the only
+#                       one on Windows, where install copies the script and its
 #                       location says nothing about where the vault is
 find_vault() {
   local d
   if [ -n "${BRAIN_VAULT:-}" ]; then printf '%s\n' "$BRAIN_VAULT"; return 0; fi
-  d=$(resolve_dir "$0")          # .../<vault>/bin
-  d=${d%/bin}
-  [ -d "$d/AI" ] && { printf '%s\n' "$d"; return 0; }
+  [ -d "$TOOL/AI" ] && { printf '%s\n' "$TOOL"; return 0; }
   if [ -r "$CONF_VAULT" ]; then
     d=$(head -1 "$CONF_VAULT")
     [ -n "$d" ] && [ -d "$d" ] && { printf '%s\n' "$d"; return 0; }
   fi
   return 1
 }
-VAULT=$(find_vault) || die "cannot find the vault: set BRAIN_VAULT, or run 'bin/brain install' from a checkout"
+VAULT=$(find_vault) || VAULT=""
+need_vault() {
+  [ -n "$VAULT" ] || die "no vault yet: run 'brain install <path-to-vault>', or set BRAIN_VAULT"
+  [ -d "$VAULT" ] || die "vault recorded but missing: $VAULT"
+}
 
 # GNU find's -printf and bash 4's mapfile are unavailable on macOS, so list
 # files the portable way and build the array with a read loop.
@@ -72,6 +89,7 @@ require_sqlite() {
 # The index is disposable and rebuilt on demand, so no agent needs to know
 # that 'brain sync' exists: a missing or stale database resyncs itself.
 ensure_db() {
+  need_vault
   if [ ! -s "$DB" ]; then cmd_sync >/dev/null; return 0; fi
   local newer
   newer=$(find "$VAULT" -name '*.md' ! -path '*/.git/*' -newer "$DB" -print -quit 2>/dev/null)
@@ -148,6 +166,7 @@ emit_lines() {
 
 # ----------------------------------------------------------------- sync ----
 cmd_sync() {
+  need_vault
   require_sqlite
   mkdir -p "$STATE"
   cd "$VAULT" || die "no vault at $VAULT"
@@ -184,11 +203,12 @@ SQL
     echo "commit;"
   } | sqlite3 "$tmp" || { rm -f "$tmp"; die "index build failed"; }
 
-  # Synonyms are checked into the repo so the vocabulary travels with it.
-  if [ -f "$VAULT/bin/synonyms.tsv" ]; then
+  # Synonyms ship with the tool, so the vocabulary travels with the CLI rather
+  # than with one person's notes. A vault may add its own on top.
+  if [ -f "$TOOL/bin/synonyms.tsv" ]; then
     awk -F'\t' 'NR>1 && NF>=2 { gsub(/'"'"'/, "'"'"''"'"'", $1); gsub(/'"'"'/, "'"'"''"'"'", $2);
       printf "insert into synonyms(term,expansion) values('"'"'%s'"'"','"'"'%s'"'"');\n", $1, $2 }' \
-      "$VAULT/bin/synonyms.tsv" | sqlite3 "$tmp"
+      "$TOOL/bin/synonyms.tsv" | sqlite3 "$tmp"
   fi
 
   # The logs survive a rebuild: they are evidence, not derived data. Bullet row
@@ -290,6 +310,8 @@ query_lines() {
 # The bootstrap answer: an agent that has `brain` on PATH can always find the
 # vault, without already knowing where it is.
 cmd_locate() {
+  [ "${1:-}" = "--tool" ] && { printf '%s\n' "$TOOL"; return 0; }
+  need_vault
   local p="$VAULT"
   if [ "${1:-}" = "--native" ] && command -v cygpath >/dev/null 2>&1; then
     cygpath -w -- "$p"
@@ -396,14 +418,23 @@ fallback_patterns() {
     -e '[0-9a-f]{64,}'
 }
 
+# A vault may carry its own allowlist; otherwise the tool's default ruleset
+# applies, so a fresh clone is still scanned.
+gitleaks_config() {
+  [ -f "$VAULT/.gitleaks.toml" ] && { printf '%s\n' "$VAULT/.gitleaks.toml"; return 0; }
+  printf '%s\n' "$TOOL/.gitleaks.toml"
+}
+
 cmd_secrets() {
-  local mode="${1:---staged}" gl rc=0
+  need_vault
+  local mode="${1:---staged}" gl rc=0 cfg
   gl=$(find_gitleaks) || gl=""
+  cfg=$(gitleaks_config)
 
   if [ -n "$gl" ]; then
     case "$mode" in
-      --history) "$gl" git "$VAULT" --no-banner --redact --config "$VAULT/.gitleaks.toml" || rc=$? ;;
-      *)         "$gl" git "$VAULT" --staged --no-banner --redact --config "$VAULT/.gitleaks.toml" || rc=$? ;;
+      --history) "$gl" git "$VAULT" --no-banner --redact --config "$cfg" || rc=$? ;;
+      *)         "$gl" git "$VAULT" --staged --no-banner --redact --config "$cfg" || rc=$? ;;
     esac
     [ "$rc" -eq 0 ] && echo "brain secrets: clean (gitleaks, $mode)"
     return "$rc"
@@ -431,6 +462,7 @@ cmd_secrets() {
 # is skipped rather than rejected, so the bullet format never becomes
 # load-bearing.
 cmd_lint() {
+  need_vault
   local staged=0; [ "${1:-}" = "--staged" ] && { staged=1; shift; }
   local fails=0 warns=0
   local lines
@@ -580,24 +612,35 @@ rc_block() {
 }
 
 cmd_install() {
-  [ "${1:-}" = "--dry-run" ] && DRY=1
+  local arg
+  for arg in "$@"; do
+    case "$arg" in
+      --dry-run) DRY=1 ;;
+      -*)        die "install: unknown flag $arg" ;;
+      *)         [ -d "$arg" ] || die "install: no such directory: $arg"
+                 VAULT=$(cd "$arg" && pwd -P) ;;
+    esac
+  done
+  [ -n "$VAULT" ] || die "install: name the vault — brain install <path-to-vault>"
+  [ -d "$VAULT/AI" ] || note "warning: $VAULT has no AI/ — is that the vault?"
   require_sqlite
   local os bindir shims
-  os=$(os_kind); shims="$VAULT/bin/shims"
+  os=$(os_kind); shims="$TOOL/bin/shims"
   bindir=$(pick_bindir)
 
+  echo "tool:  $TOOL"
   echo "vault: $VAULT   ($os)"
   [ "$DRY" -eq 1 ] || { mkdir -p "$STATE" "$CONF_DIR"; printf '%s\n' "$VAULT" > "$CONF_VAULT"; }
   say "vault path recorded: $CONF_VAULT"
-  [ "$DRY" -eq 1 ] || chmod +x "$VAULT/bin/brain" "$VAULT/bin/hooks/"* "$VAULT/bin/shims/"* 2>/dev/null
+  [ "$DRY" -eq 1 ] || chmod +x "$TOOL/bin/brain" "$TOOL/bin/hooks/"* "$TOOL/bin/shims/"* 2>/dev/null
 
   echo "cli:"
   if [ "$DRY" -eq 1 ]; then
     say "cli link: $bindir/brain"
-  elif ln -sf "$VAULT/bin/brain" "$bindir/brain" 2>/dev/null; then
+  elif ln -sf "$TOOL/bin/brain" "$bindir/brain" 2>/dev/null; then
     say "cli link: $bindir/brain"
   else
-    cp -f "$VAULT/bin/brain" "$bindir/brain" && chmod +x "$bindir/brain"
+    cp -f "$TOOL/bin/brain" "$bindir/brain" && chmod +x "$bindir/brain"
     say "copied $bindir/brain (no symlink support; re-run install after an update)"
   fi
   if on_path "$bindir"; then
@@ -608,8 +651,11 @@ cmd_install() {
   fi
 
   echo "git hooks:"
-  [ "$DRY" -eq 1 ] || git -C "$VAULT" config core.hooksPath bin/hooks
-  say "core.hooksPath = bin/hooks (relative, so it survives a move)"
+  # The hooks ship with the tool, so this path leaves the vault: it has to be
+  # absolute, and re-running install is what fixes it after either repository
+  # moves.
+  [ "$DRY" -eq 1 ] || git -C "$VAULT" config core.hooksPath "$TOOL/bin/hooks"
+  say "core.hooksPath = $TOOL/bin/hooks"
 
   echo "guards:"
   # The old shell-function guard, superseded by the shims.
@@ -694,14 +740,18 @@ usage() {
 brain — query and lint the vault. Markdown is canonical; the index is disposable.
 
   brain locate [--native] absolute path to the vault, for agents and scripts
+  brain locate --tool     absolute path to this CLI's own checkout
   brain find <terms...>   search bullets, handle matches ranked first
   brain sync              rebuild the index from markdown
   brain doctor            what is stale, thin, oversized, duplicated or orphaned
   brain log               zero-hit queries — the synonym backlog
   brain lint [--staged]   check bullet form; hard failures block a commit
   brain secrets [--staged|--history]  scan for credentials (gitleaks, with a fallback)
-  brain install [--dry-run]    bind this machine to the vault
+  brain install [<vault>] [--dry-run]  bind this machine to a vault
   brain uninstall [--dry-run]  undo those bindings; the vault is untouched
+
+This CLI and the notes it searches are separate repositories. The vault is
+named once, by 'brain install <path>', and recorded in ~/.config/brain/vault.
 
 Zero-hit queries are recorded so the synonym table fills from real misses
 rather than guesswork; edit bin/synonyms.tsv and run 'brain sync'.
