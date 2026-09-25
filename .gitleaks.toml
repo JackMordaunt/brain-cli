@@ -4,8 +4,8 @@
 #
 # The stock rules target code repositories — cloud keys, CI tokens. A notes
 # vault leaks differently: a connection string or a password pasted into prose.
-# The extra rules below cover that shape; the allowlist covers the placeholders
-# and identifier *names* this vault legitimately records.
+# The extra rules below cover that shape; the allowlist covers placeholders and
+# the identifier *names* a vault legitimately records, never values.
 
 title = "brain (default ruleset)"
 
