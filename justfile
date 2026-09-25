@@ -16,9 +16,11 @@ release: build
 test: build
     #!/usr/bin/env bash
     set -euo pipefail
-    export BRAIN_VAULT="$PWD/testdata/vault"
     export BRAIN_STATE="$(mktemp -d)"
     trap 'rm -rf "$BRAIN_STATE"' EXIT
+    # A copy, so a test can edit the vault without dirtying the fixture.
+    cp -r testdata/vault "$BRAIN_STATE/vault"
+    export BRAIN_VAULT="$BRAIN_STATE/vault"
     bin/brain sync
     bin/brain lint
     # Captured, never piped into grep -q: that closes the pipe early, and under
@@ -30,6 +32,21 @@ test: build
     bin/brain log     >/dev/null && echo "ok log"
     bin/brain locate --tool >/dev/null && echo "ok locate --tool"
     test "$(bin/brain locate)" = "$BRAIN_VAULT" && echo "ok locate"
+
+    # The log counts entries, not output lines, and records who asked.
+    out=$(BRAIN_CALLER=fixture-agent BRAIN_SESSION=sess-a bin/brain find sqlite)
+    entries=$(grep -c '\.md:[0-9]*' <<< "$out")
+    logged=$(sqlite3 "$BRAIN_STATE/brain.db" "select hits || ' ' || caller || ' ' || session from queries order by id desc limit 1")
+    test "$logged" = "$entries fixture-agent sess-a" && echo "ok log counts entries and caller ($logged)" || { echo "FAIL log row: '$logged' vs $entries entries"; exit 1; }
+    # A miss that a later edit answers leaves the backlog on its own.
+    printf -- '- **zzzznope** (aliases: nope) — now written down — fixture — 2026-01-02\n' >> "$BRAIN_VAULT/AI/MEMORY.md"
+    out=$(bin/brain log)
+    case "$out" in *'missed then answered'*zzzznope*) echo "ok log clears an answered miss" ;; *) echo "FAIL log should set the answered miss aside"; exit 1 ;; esac
+    grep -q '^│ zzzznope' <<< "$out" && { echo "FAIL answered miss still in the backlog table"; exit 1; } || true
+    # Promotion reads the query log: three queries on the same bullet flag it.
+    bin/brain find sqlite >/dev/null; bin/brain find sqlite >/dev/null
+    out=$(bin/brain doctor || true)
+    case "$out" in *'promote candidates'*'sqlite'*) echo "ok doctor promotes by query frequency" ;; *) echo "FAIL doctor promote"; exit 1 ;; esac
 
     # recall runs against a fixture source, never anyone's real transcripts.
     export BRAIN_ADAPTERS="$PWD/testdata/adapters"

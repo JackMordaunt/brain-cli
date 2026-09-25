@@ -29,7 +29,7 @@ brain recall <terms...> search agent transcripts (see below)
 brain locate            absolute path to the vault, for agents and scripts
 brain sync              rebuild the index
 brain doctor            what is stale, thin, oversized, duplicated or orphaned
-brain log               zero-hit queries — the synonym backlog
+brain log               misses that still miss, and who is asking
 brain lint [--staged]   check bullet form; hard failures block a commit
 brain secrets           scan for credentials (gitleaks, with a built-in fallback)
 ```
@@ -90,6 +90,13 @@ bullets of one fact each:
 `brain lint` enforces the trailing date and refuses a bullet carrying a literal
 credential. Everything else in the vault is prose, indexed line by line so
 handoffs and longer notes are findable too.
+
+Every `find` is logged with its entry count and its caller. Claude Code is
+recognised from its own environment; any other agent sets `BRAIN_CALLER` and
+`BRAIN_SESSION` so `brain log` can say who asks and how often. A zero-hit query
+is a backlog item only while it still misses: `brain log` re-runs each one and
+sets aside those a later edit answered. `brain doctor` uses the same log to name
+bullets returned often enough that a gate or a project file should carry them.
 
 `testdata/vault` is a fixture of exactly this shape; `just test` runs the whole
 suite against it, so the tests pass on a machine with no notes at all.

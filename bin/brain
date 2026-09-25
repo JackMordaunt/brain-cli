@@ -27,6 +27,8 @@ MAXLEN=400          # soft cap on a bullet's fact text
 STALE_DAYS=90       # a fact older than this wants re-verification
 FIND_LIMIT=8
 FIND_BYTES=4000
+PROMOTE_QUERIES=3   # a bullet returned this often is a candidate for a gate
+SCHEMA=2            # bump when a table changes shape; ensure_db then rebuilds
 
 die() { printf 'brain: %s\n' "$*" >&2; exit 1; }
 
@@ -94,6 +96,8 @@ require_sqlite() {
 ensure_db() {
   need_vault
   if [ ! -s "$DB" ]; then cmd_sync >/dev/null; return 0; fi
+  # An index built by an older CLI rebuilds itself; the logs carry over.
+  if [ "$(sqlite3 "$DB" 'pragma user_version' 2>/dev/null)" != "$SCHEMA" ]; then cmd_sync >/dev/null; return 0; fi
   local newer
   newer=$(find "$VAULT" -name '*.md' ! -path '*/.git/*' -newer "$DB" -print -quit 2>/dev/null)
   [ -n "$newer" ] && cmd_sync >/dev/null
@@ -216,13 +220,22 @@ SQL
 
   # The logs survive a rebuild: they are evidence, not derived data. Bullet row
   # ids are reassigned on every sync, so a returned bullet is recorded by handle.
-  sqlite3 "$tmp" "create table queries(id integer primary key, ts text, q text, hits integer);
+  sqlite3 "$tmp" "create table queries(id integer primary key, ts text, q text, hits integer,
+      caller text, session text);
     create table query_hits(query_id integer, file text, handle text, rank integer);"
   if [ -s "$DB" ]; then
-    sqlite3 "$tmp" "attach '$DB' as old; insert into queries(id,ts,q,hits) select rowid,ts,q,hits from old.queries;" 2>/dev/null
+    # A log written before the caller columns existed carries over with them empty.
+    if sqlite3 "$DB" "select caller, session from queries limit 0" >/dev/null 2>&1; then
+      sqlite3 "$tmp" "attach '$DB' as old; insert into queries(id,ts,q,hits,caller,session)
+        select rowid,ts,q,hits,caller,session from old.queries;" 2>/dev/null
+    else
+      sqlite3 "$tmp" "attach '$DB' as old; insert into queries(id,ts,q,hits,caller,session)
+        select rowid,ts,q,hits,'','' from old.queries;" 2>/dev/null
+    fi
     sqlite3 "$tmp" "attach '$DB' as old; insert into query_hits select * from old.query_hits;" 2>/dev/null
   fi
 
+  sqlite3 "$tmp" "pragma user_version=$SCHEMA;"
   mv -f "$tmp" "$DB"
   rm -f "$DB.new-wal" "$DB.new-shm"
   printf 'indexed %s bullets, %s links, %s files\n' \
@@ -234,10 +247,11 @@ SQL
 # ----------------------------------------------------------------- find ----
 # Handle matches outrank body matches, so a bullet named **review** beats a
 # handoff that merely mentions the word.
-cmd_find() {
-  ensure_db
-  [ $# -gt 0 ] || die "usage: brain find <terms...>"
-  local raw="$*" groups=() t syns esc grp
+# Turns a raw query into the two FTS5 match strings `find` tries in order:
+# every term (with its synonyms) required, then any term. Sets M_AND and M_OR;
+# returns 1 when nothing survives tokenising.
+build_match() {
+  local raw="$1" groups=() t syns esc grp s i
   for t in $(printf '%s' "$raw" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9.\-_ ' ' '); do
     [ -n "$t" ] || continue
     esc="\"${t//\"/}\""
@@ -248,24 +262,47 @@ cmd_find() {
     done <<< "$syns"
     groups+=("($grp)")
   done
-  [ "${#groups[@]}" -gt 0 ] || die "empty query"
+  [ "${#groups[@]}" -gt 0 ] || return 1
+  M_AND="${groups[0]}"; for ((i=1;i<${#groups[@]};i++)); do M_AND="$M_AND AND ${groups[i]}"; done
+  M_OR="${groups[0]}";  for ((i=1;i<${#groups[@]};i++)); do M_OR="$M_OR OR ${groups[i]}"; done
+}
 
-  local m_and m_or hits out docs
-  m_and="${groups[0]}"; for ((i=1;i<${#groups[@]};i++)); do m_and="$m_and AND ${groups[i]}"; done
-  m_or="${groups[0]}";  for ((i=1;i<${#groups[@]};i++)); do m_or="$m_or OR ${groups[i]}"; done
+# A bullet result is three lines (locator, bullet, blank); a document result is
+# one. Counting entries rather than lines keeps the log honest: the earlier
+# line count reported 28 for a capped query that returned 8 bullets.
+count_entries() { grep -c '^[^[:space:]]*\.md:[0-9][0-9]*$' <<< "$1"; }
 
-  local used
-  out=$(query_fts "$m_and"); used="$m_and"
-  [ -z "$out" ] && { out=$(query_fts "$m_or"); used="$m_or"; }
-  docs=$(query_lines "$m_and")
-  [ -z "$docs" ] && docs=$(query_lines "$m_or")
+# Who asked. Agents set BRAIN_CALLER/BRAIN_SESSION; Claude Code is recognised
+# from its own environment; anything else is a human at a shell, named after
+# the parent process where ps can say.
+caller_id() {
+  if [ -n "${BRAIN_CALLER:-}" ]; then printf '%s' "$BRAIN_CALLER"
+  elif [ -n "${CLAUDECODE:-}" ]; then printf 'claude'
+  else printf '%s' "$(ps -o comm= -p $PPID 2>/dev/null | tr -d ' ' || true)"; fi
+}
+session_id() { printf '%s' "${BRAIN_SESSION:-${CLAUDE_CODE_SESSION_ID:-}}"; }
+
+cmd_find() {
+  ensure_db
+  [ $# -gt 0 ] || die "usage: brain find <terms...>"
+  local raw="$*" M_AND M_OR
+  build_match "$raw" || die "empty query"
+
+  local used hits out docs
+  out=$(query_fts "$M_AND"); used="$M_AND"
+  [ -z "$out" ] && { out=$(query_fts "$M_OR"); used="$M_OR"; }
+  docs=$(query_lines "$M_AND")
+  [ -z "$docs" ] && docs=$(query_lines "$M_OR")
 
   hits=0
-  [ -n "$out" ]  && hits=$(grep -c '^' <<< "$out")
+  [ -n "$out" ]  && hits=$(count_entries "$out")
   [ -n "$docs" ] && hits=$((hits + $(grep -c '^' <<< "$docs")))
 
-  local qid
-  qid=$(sqlite3 "$DB" "insert into queries(ts,q,hits) values(datetime('now'),'${raw//\'/\'\'}',$hits); select last_insert_rowid();" 2>/dev/null)
+  local qid caller session
+  caller=$(caller_id); session=$(session_id)
+  qid=$(sqlite3 "$DB" "insert into queries(ts,q,hits,caller,session)
+    values(datetime('now'),'${raw//\'/\'\'}',$hits,'${caller//\'/\'\'}','${session//\'/\'\'}');
+    select last_insert_rowid();" 2>/dev/null)
   # Which bullets answered, so a bullet no query ever returns becomes visible.
   if [ -n "$out" ] && [ -n "${qid:-}" ]; then
     sqlite3 "$DB" "insert into query_hits(query_id,file,handle,rank)
@@ -323,14 +360,34 @@ cmd_locate() {
   fi
 }
 
+# A miss is only a backlog item while it still misses. Most are a session
+# asking about the thing it is in the middle of writing down — "agenda" missed
+# at 17:42 and its bullet was committed at 18:15 — so every zero-hit query is
+# re-run against the current index and the ones that now answer are set aside.
 cmd_log() {
   ensure_db
-  echo "== zero-hit queries (the synonym backlog) =="
+  local q answered="" n=0 M_AND M_OR
+  while IFS= read -r q; do
+    [ -n "$q" ] || continue
+    build_match "$q" || continue
+    if [ -n "$(query_fts "$M_AND")$(query_fts "$M_OR")$(query_lines "$M_AND")$(query_lines "$M_OR")" ]; then
+      answered="$answered${answered:+,}'${q//\'/\'\'}'"; n=$((n+1))
+    fi
+  done < <(sqlite3 "$DB" "select distinct q from queries where hits=0")
+
+  echo "== zero-hit queries that still miss (the synonym backlog) =="
   sqlite3 -box "$DB" "select q as query, count(*) as misses, max(ts) as last
-    from queries where hits=0 group by q order by misses desc, last desc limit 30;"
+    from queries where hits=0 ${answered:+and q not in ($answered)}
+    group by q order by misses desc, last desc limit 30;"
+  [ "$n" -gt 0 ] && echo "($n missed then answered by a later edit: ${answered//\'/})"
   echo
   echo "== recent queries =="
-  sqlite3 -box "$DB" "select ts, q as query, hits from queries order by ts desc limit 15;"
+  sqlite3 -box "$DB" "select ts, q as query, hits, caller from queries order by ts desc limit 15;"
+  echo
+  echo "== who asks: queries and distinct sessions per caller =="
+  sqlite3 -box "$DB" "select coalesce(nullif(caller,''),'?') as caller, count(*) as queries,
+    count(distinct nullif(session,'')) as sessions, sum(hits=0) as misses
+    from queries group by 1 order by 2 desc;"
 }
 
 # --------------------------------------------------------------- doctor ----
@@ -369,13 +426,18 @@ cmd_doctor() {
       and not exists (select 1 from lines l where l.file <> d.file and l.text like '%' || replace(d.file,'AI/','') || '%')
     order by d.file;"
 
-  echo; echo "== promote candidates: a lesson whose handle shows up in 2+ handoffs =="
-  sqlite3 -box "$DB" "select b.handle, count(distinct l.file) n
-    from bullets b join lines l
-      on l.file like 'AI/handoffs/%'
-     and lower(l.text) like '%' || lower(b.handle) || '%'
-    where b.file = 'AI/LEARNINGS.md'
-    group by b.handle having n >= 2 order by n desc limit 20;"
+  # Frequency is the promote signal: a bullet that keeps answering queries is
+  # being paid for in tokens on every hit, and a gate, shim or project file
+  # would answer it for free. The earlier rule (handle named in 2+ handoffs)
+  # never fired; this one reads the log that already exists.
+  echo; echo "== promote candidates: returned by ${PROMOTE_QUERIES}+ queries — a gate or project file would answer for free =="
+  sqlite3 -box "$DB" "select h.file, h.handle, count(distinct h.query_id) as queries,
+      count(distinct nullif(q.session,'')) as sessions,
+      substr(group_concat(distinct q.q), 1, 40) as asked_as
+    from query_hits h join queries q on q.id = h.query_id
+    where h.rank <= 3
+    group by h.file, h.handle having queries >= $PROMOTE_QUERIES
+    order by queries desc, sessions desc limit 20;"
 
   local nq
   nq=$(sqlite3 "$DB" 'select count(*) from queries' 2>/dev/null)
@@ -994,7 +1056,7 @@ brain — query and lint the vault. Markdown is canonical; the index is disposab
     --sessions (one row per conversation)  --prefix (last term matches as a prefix)
   brain sync              rebuild the index from markdown
   brain doctor            what is stale, thin, oversized, duplicated or orphaned
-  brain log               zero-hit queries — the synonym backlog
+  brain log               misses that still miss, and who is asking
   brain lint [--staged]   check bullet form; hard failures block a commit
   brain secrets [--staged|--history]  scan for credentials (gitleaks, with a fallback)
   brain install [<vault>] [--dry-run]  bind this machine to a vault
