@@ -648,7 +648,7 @@ recall_enabled_or_die() {
 }
 
 cmd_recall() {
-  local limit=$RECALL_LIMIT json=0 full="" terms=()
+  local limit=$RECALL_LIMIT json=0 full="" sessions=0 prefix=0 terms=()
   local exclude="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
   # Its own transcript is on disk and will be picked up by the next sync, so
   # without this an agent asking whether it has discussed something finds its
@@ -683,6 +683,8 @@ cmd_recall() {
       --exclude)  shift; exclude=${1:-}; shift ;;
       --json)     json=1; shift ;;
       --all)      exclude=""; shift ;;
+      --sessions) sessions=1; shift ;;
+      --prefix)   prefix=1; shift ;;
       -*)         die "recall: unknown flag $1" ;;
       *)          terms+=("$1"); shift ;;
     esac
@@ -697,15 +699,45 @@ cmd_recall() {
   # ("unable to use function bm25 in the requested context") once the call sits
   # behind an aggregate or a window. So both are computed in the CTE that does
   # the MATCH, and the join happens afterwards.
-  local m t esc
+  # --prefix makes the last term a prefix match, which is what an interactive
+  # caller needs: without the star an FTS5 query matches whole tokens only, so a
+  # half-typed word finds nothing and the list stays empty until the word is
+  # finished. The justfile asserts both halves of that ("ok exact needs the
+  # whole word", "ok recall --prefix"); FTS5 spells the operator out under
+  # "FTS5 Prefix Queries".
+  local m t esc i=0 last=$(( ${#terms[@]} - 1 ))
   m=""
   for t in "${terms[@]}"; do
     esc=${t//\"/}
-    m="$m${m:+ AND }\"$esc\""
+    if [ "$prefix" -eq 1 ] && [ "$i" -eq "$last" ]; then
+      m="$m${m:+ AND }\"$esc\"*"
+    else
+      m="$m${m:+ AND }\"$esc\""
+    fi
+    i=$((i + 1))
   done
 
   local where=""
   [ -n "$exclude" ] && where="and t.session <> '${exclude//\'/\'\'}'"
+
+  if [ "$sessions" -eq 1 ]; then
+    local srows
+    srows=$(sqlite3 -separator $'\t' "$RECALL_DB" "
+      with hit(rid, s) as (
+        select rowid, bm25(turn_fts, 1.0, 2.0)
+        from turn_fts where turn_fts match '${m//\'/\'\'}'
+        order by rank limit 400
+      )
+      select t.session, count(*), t.adapter, t.title
+      from hit h join turn t on t.rowid = h.rid
+      where 1=1 $where
+      group by t.session
+      order by min(h.s) limit $limit;" 2>/dev/null)
+    # A miss exits non-zero here too, so a caller can tell one from a hit.
+    [ -n "$srows" ] || return 1
+    printf '%s\n' "$srows"
+    return 0
+  fi
 
   local out
   out=$(sqlite3 -separator $'\t' "$RECALL_DB" "
@@ -958,6 +990,7 @@ brain — query and lint the vault. Markdown is canonical; the index is disposab
   brain find <terms...>   search bullets, handle matches ranked first
   brain recall <terms...> search agent transcripts: what was said, not what is true
     --sync --sources --enable <a> --disable <a> --full <id> --limit N --json
+    --sessions (one row per conversation)  --prefix (last term matches as a prefix)
   brain sync              rebuild the index from markdown
   brain doctor            what is stale, thin, oversized, duplicated or orphaned
   brain log               zero-hit queries — the synonym backlog

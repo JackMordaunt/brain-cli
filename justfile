@@ -48,6 +48,13 @@ test: build
     case "$out" in *'frame you clicked'*) echo "ok recall --full" ;; *) echo "FAIL recall --full"; exit 1 ;; esac
     out=$(bin/brain recall playhead --json)
     printf '%s' "$out" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[0]["title"]' && echo "ok recall --json"
+    out=$(bin/brain recall playhead --sessions)
+    case "$out" in *'sess-one'*) echo "ok recall --sessions" ;; *) echo "FAIL recall --sessions"; exit 1 ;; esac
+    test "$(bin/brain recall playhead --sessions | wc -l)" = 1 || { echo "FAIL --sessions should group"; exit 1; }
+    bin/brain recall playh --sessions >/dev/null 2>&1 && { echo "FAIL a half word should not match"; exit 1; } || echo "ok exact needs the whole word"
+    out=$(bin/brain recall playh --sessions --prefix)
+    case "$out" in *'sess-one'*) echo "ok recall --prefix" ;; *) echo "FAIL recall --prefix"; exit 1 ;; esac
+
     # Re-syncing the same fixture must not double-count: ids are the key.
     before=$(bin/brain recall --sync | tail -1)
     after=$(bin/brain recall --sync | tail -1)
