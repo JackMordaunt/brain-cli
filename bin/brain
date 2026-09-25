@@ -937,7 +937,8 @@ cmd_install() {
 "@~/.agents/AGENTS.md
 
 The Brain is this machine's shared agent memory. \`brain locate\` prints its path,
-\`brain find <handle>\` searches it. Do not hard-code the path."
+\`brain find <handle>\` searches it, and \`brain recall <terms>\` searches what was
+said in past agent conversations. Do not hard-code the path."
   # An absolute import of the same file would load it a second time.
   if grep -q "^@.*${VAULT}/AI/AGENTS.md" "$HOME/.claude/CLAUDE.md" 2>/dev/null; then
     say "$HOME/.claude/CLAUDE.md: dropping the now-duplicate absolute import"
