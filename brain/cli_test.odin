@@ -108,3 +108,91 @@ locate_prints_the_vault_and_the_tool :: proc(t: ^testing.T) {
 	testing.expect(t, os.is_file(path.join(strings.trim_space(o), "bin", "synonyms.tsv")), "--tool names the checkout")
 }
 
+@(test)
+find_ranks_a_handle_and_reaches_a_document :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "find", "sqlite")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "**sqlite**"), "find bullet")
+	testing.expect(t, strings.has_prefix(o, "AI/MEMORY.md:"), "a locator precedes the bullet")
+	o, _, code = exec(f.cli, "find", "handoff")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "-- documents --"), "find document")
+	o, _, code = exec(f.cli, "find", "zzzznope")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.has_prefix(o, "no hits for: zzzznope"), "a miss says so")
+}
+
+@(test)
+find_logs_entries_and_the_caller :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	f.cli.env["BRAIN_SESSION"] = "sess-a"
+	o, _, _ := exec(f.cli, "find", "sqlite")
+	entries := strings.count(o, ".md:")
+	testing.expect(t, entries >= 1)
+	got := last_query_row(t, f)
+	want := strings.concatenate({int_str(i64(entries)), " fixture-agent sess-a"})
+	testing.expect_value(t, got, want)
+}
+
+// The log is evidence and must survive a rebuild. On Windows the shell
+// version's carry-over once attached a path sqlite3.exe could not open, and
+// every sync erased it.
+@(test)
+log_survives_sync :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	exec(f.cli, "find", "sqlite")
+	exec(f.cli, "find", "zzzznope")
+	before := count_int(t, f, "select count(*) from queries")
+	testing.expect_value(t, before, 2)
+	_, _, code := exec(f.cli, "sync")
+	testing.expect_value(t, code, 0)
+	testing.expect_value(t, count_int(t, f, "select count(*) from queries"), before)
+	testing.expect(t, count_int(t, f, "select count(*) from query_hits") >= 1, "hits carry over too")
+}
+
+// A miss that a later edit answers leaves the backlog on its own.
+@(test)
+log_sets_an_answered_miss_aside :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	exec(f.cli, "find", "zzzznope")
+	testing.expect_value(
+		t,
+		path.append_file(
+			path.join(f.vault, "AI", "MEMORY.md"),
+			"- **zzzznope** (aliases: nope) — now written down — fixture — 2026-01-02\n",
+		),
+		nil,
+	)
+	o, _, code := exec(f.cli, "log")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "missed then answered"), "the answered miss is reported")
+	testing.expect(t, strings.contains(o, "zzzznope"), "and named")
+	testing.expect(t, !strings.contains(o, "\n│ zzzznope"), "but is out of the backlog table")
+}
+
+@(test)
+find_reads_a_crlf_vault :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	for name in ([3]string{"MEMORY.md", "LEARNINGS.md", "TUNINGS.md"}) {
+		p := path.join(f.vault, "AI", name)
+		text, err := path.read(p)
+		testing.expect_value(t, err, nil)
+		crlf, _ := strings.replace_all(text, "\n", "\r\n")
+		testing.expect_value(t, path.write(p, crlf), nil)
+	}
+	o, _, code := exec(f.cli, "find", "sqlite")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "**sqlite**"), "find on a CRLF vault")
+}

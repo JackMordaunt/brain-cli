@@ -163,8 +163,12 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 	switch cmd {
 	case "locate":
 		return cmd_locate(cli, rest)
+	case "find":
+		return cmd_find(cli, rest)
 	case "sync":
 		return cmd_sync(cli, rest)
+	case "log":
+		return cmd_log(cli, rest)
 	case "", "-h", "--help", "help":
 		out(cli, USAGE)
 		return 0
