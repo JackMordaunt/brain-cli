@@ -155,26 +155,29 @@ need_vault :: proc(cli: ^Cli) -> string {
 	return ""
 }
 
-// run dispatches args and returns the exit code. A failure is printed to
-// Cli.err as `brain: <message>`.
+// run dispatches args and returns the exit code. A failure has been printed
+// to Cli.err as `brain: <message>` by the command that hit it.
 run :: proc(cli: ^Cli, args: []string) -> int {
 	cmd := len(args) > 0 ? args[0] : ""
 	rest := len(args) > 0 ? args[1:] : nil
-	err: string
-	code := 0
 	switch cmd {
 	case "locate":
-		err = cmd_locate(cli, rest)
+		return cmd_locate(cli, rest)
+	case "sync":
+		return cmd_sync(cli, rest)
 	case "", "-h", "--help", "help":
 		out(cli, USAGE)
+		return 0
 	case:
-		err = fmt.aprintf("unknown command: %s (try 'brain help')", cmd)
+		return fail(cli, fmt.aprintf("unknown command: %s (try 'brain help')", cmd))
 	}
-	if err != "" {
-		errf(cli, "brain: %s\n", err)
-		return 1
-	}
-	return code
+}
+
+// fail prints a message the shell version's `die` printed and returns the
+// exit code the caller passes on.
+fail :: proc(cli: ^Cli, msg: string) -> int {
+	errf(cli, "brain: %s\n", msg)
+	return 1
 }
 
 USAGE :: `brain — query and lint the vault. Markdown is canonical; the index is disposable.
@@ -204,15 +207,15 @@ rather than guesswork; edit bin/synonyms.tsv and run 'brain sync'.
 // vault, without already knowing where it is. Paths print in the platform's
 // own form, so --native is accepted for the callers that pass it and does
 // nothing.
-cmd_locate :: proc(cli: ^Cli, args: []string) -> string {
+cmd_locate :: proc(cli: ^Cli, args: []string) -> int {
 	p := cli.vault
 	if len(args) > 0 && args[0] == "--tool" {
 		p = cli.tool
 	} else if err := need_vault(cli); err != "" {
-		return err
+		return fail(cli, err)
 	}
 	outf(cli, "%s\n", p)
-	return ""
+	return 0
 }
 
 // ---- output ---------------------------------------------------------------
