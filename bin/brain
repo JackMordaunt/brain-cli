@@ -32,6 +32,24 @@ SCHEMA=2            # bump when a table changes shape; ensure_db then rebuilds
 
 die() { printf 'brain: %s\n' "$*" >&2; exit 1; }
 
+# Git Bash started from PowerShell or cmd inherits the Windows PATH, where
+# C:\Windows\system32\find.exe and sort.exe shadow the POSIX tools called here.
+# A native sqlite3.exe also writes CRLF: `read` keeps the \r, and every value
+# read back then fails to match the one stored (a zero-hit query re-run by
+# `brain log` was never set aside, observed 2026-09-25).
+case "${OSTYPE:-}" in
+  msys*|cygwin*)
+    PATH="/usr/bin:$PATH"
+    sqlite3() { command sqlite3 "$@" | tr -d '\r'; }
+    ;;
+esac
+
+# A path inside SQL text is not an argument, so MSYS never translates it for a
+# native sqlite3.exe, which then opens \c\Users\... and finds nothing.
+sql_path() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m -- "$1"; else printf '%s\n' "$1"; fi
+}
+
 os_kind() {
   case "$(uname -s 2>/dev/null)" in
     Linux*)                 echo linux ;;
@@ -86,7 +104,8 @@ need_vault() {
 list_md() { find . -name '*.md' ! -path './.git/*' -print | sed 's|^\./||' | LC_ALL=C sort; }
 
 require_sqlite() {
-  command -v sqlite3 >/dev/null 2>&1 || die "sqlite3 is not installed (brew install sqlite / pacman -S sqlite / winget install SQLite.SQLite)"
+  # type -P, not command -v: the Windows wrapper above is a function by that name.
+  type -P sqlite3 >/dev/null 2>&1 || die "sqlite3 is not installed (brew install sqlite / pacman -S sqlite / winget install SQLite.SQLite)"
   sqlite3 :memory: "create virtual table t using fts5(a);" >/dev/null 2>&1 \
     || die "this sqlite3 lacks FTS5; install a build with it enabled"
 }
@@ -224,15 +243,16 @@ SQL
       caller text, session text);
     create table query_hits(query_id integer, file text, handle text, rank integer);"
   if [ -s "$DB" ]; then
+    local old; old=$(sql_path "$DB")
     # A log written before the caller columns existed carries over with them empty.
     if sqlite3 "$DB" "select caller, session from queries limit 0" >/dev/null 2>&1; then
-      sqlite3 "$tmp" "attach '$DB' as old; insert into queries(id,ts,q,hits,caller,session)
+      sqlite3 "$tmp" "attach '$old' as old; insert into queries(id,ts,q,hits,caller,session)
         select rowid,ts,q,hits,caller,session from old.queries;" 2>/dev/null
     else
-      sqlite3 "$tmp" "attach '$DB' as old; insert into queries(id,ts,q,hits,caller,session)
+      sqlite3 "$tmp" "attach '$old' as old; insert into queries(id,ts,q,hits,caller,session)
         select rowid,ts,q,hits,'','' from old.queries;" 2>/dev/null
     fi
-    sqlite3 "$tmp" "attach '$DB' as old; insert into query_hits select * from old.query_hits;" 2>/dev/null
+    sqlite3 "$tmp" "attach '$old' as old; insert into query_hits select * from old.query_hits;" 2>/dev/null
   fi
 
   sqlite3 "$tmp" "pragma user_version=$SCHEMA;"

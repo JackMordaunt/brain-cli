@@ -38,6 +38,11 @@ test: build
     entries=$(grep -c '\.md:[0-9]*' <<< "$out")
     logged=$(sqlite3 "$BRAIN_STATE/brain.db" "select hits || ' ' || caller || ' ' || session from queries order by id desc limit 1")
     test "$logged" = "$entries fixture-agent sess-a" && echo "ok log counts entries and caller ($logged)" || { echo "FAIL log row: '$logged' vs $entries entries"; exit 1; }
+    # The log is evidence and must survive a rebuild. On Windows the carry-over
+    # once attached a path sqlite3.exe could not open, and every sync erased it.
+    nq=$(sqlite3 "$BRAIN_STATE/brain.db" "select count(*) from queries")
+    bin/brain sync >/dev/null
+    test "$(sqlite3 "$BRAIN_STATE/brain.db" "select count(*) from queries")" = "$nq" && echo "ok log survives sync ($nq)" || { echo "FAIL sync dropped the query log"; exit 1; }
     # A miss that a later edit answers leaves the backlog on its own.
     printf -- '- **zzzznope** (aliases: nope) — now written down — fixture — 2026-01-02\n' >> "$BRAIN_VAULT/AI/MEMORY.md"
     out=$(bin/brain log)
