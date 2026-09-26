@@ -13,6 +13,7 @@
 set -uo pipefail
 
 ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
+# A native jq.exe writes CRLF, so every jq read below ends in tr -d '\r'.
 
 emit() {
   local f=$1 sid title cwd
@@ -22,12 +23,13 @@ emit() {
   # grep first: reading the title out of a 9 MB transcript with jq alone costs
   # far more than filtering the two lines that can carry one.
   title=$(grep -h '"type":"custom-title"' "$f" 2>/dev/null | tail -1 \
-          | jq -r '.customTitle // empty' 2>/dev/null || true)
+          | jq -r '.customTitle // empty' 2>/dev/null | tr -d '\r' || true)
   [ -n "$title" ] || title=$(grep -h '"type":"ai-title"' "$f" 2>/dev/null | tail -1 \
-          | jq -r '.aiTitle // empty' 2>/dev/null || true)
+          | jq -r '.aiTitle // empty' 2>/dev/null | tr -d '\r' || true)
   [ -n "$title" ] || return 0
 
-  cwd=$(grep -m1 -oh '"cwd":"[^"]*"' "$f" 2>/dev/null | cut -d'"' -f4)
+  # Through jq, not cut: a Windows cwd is JSON-escaped as C:\\Users\\...
+  cwd=$(grep -m1 -h '"cwd":"' "$f" 2>/dev/null | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r' || true)
 
   jq -r --arg sid "$sid" --arg title "$title" --arg cwd "${cwd:-}" '
     select((.type == "user" or .type == "assistant")
@@ -43,8 +45,12 @@ emit() {
               or startswith("<function_results>") or startswith("Caveat:")) | not)
     | select(.uuid != null)
     | [.uuid, (.timestamp // ""), .type, $sid, $title, $cwd,
-       ($b | gsub("[[:space:]]+"; " "))] | @tsv
-  ' "$f" 2>/dev/null || true
+       ($b | gsub("[[:space:]]+"; " "))]
+    # Not @tsv: it writes a backslash as \\ and nothing downstream undoes it,
+    # so every Windows cwd was stored as C:\\Users\\... A row only needs its
+    # tabs and newlines gone.
+    | map(tostring | gsub("[\t\n\r]"; " ")) | join("\t")
+  ' "$f" 2>/dev/null | tr -d '\r' || true
 }
 
 case "${1:-}" in

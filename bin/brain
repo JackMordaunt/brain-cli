@@ -131,6 +131,7 @@ ensure_db() {
 emit_sql() {
   awk '
     function esc(s) { gsub(/'"'"'/, "'"'"''"'"'", s); return s }
+    { sub(/\r$/, "") }
     FNR==1 { section="" }
     /^## / { section=substr($0,4); next }
     /^- \*\*/ {
@@ -165,6 +166,7 @@ emit_sql() {
 emit_links() {
   awk '
     function esc(s) { gsub(/'"'"'/, "'"'"''"'"'", s); return s }
+    { sub(/\r$/, "") }
     {
       s=$0
       while (match(s, /\[\[[^]]+\]\]/)) {
@@ -183,6 +185,7 @@ emit_links() {
 emit_lines() {
   awk '
     function esc(s) { gsub(/'"'"'/, "'"'"''"'"'", s); return s }
+    { sub(/\r$/, "") }
     length($0) > 20 && $0 !~ /^- \*\*/ {
       printf "insert into lines(file,line,text) values(%s,%d,%s);\n",
         "'"'"'" esc(FILENAME) "'"'"'", FNR, "'"'"'" esc($0) "'"'"'"
@@ -370,10 +373,10 @@ query_lines() {
 # The bootstrap answer: an agent that has `brain` on PATH can always find the
 # vault, without already knowing where it is.
 cmd_locate() {
-  [ "${1:-}" = "--tool" ] && { printf '%s\n' "$TOOL"; return 0; }
-  need_vault
-  local p="$VAULT"
-  if [ "${1:-}" = "--native" ] && command -v cygpath >/dev/null 2>&1; then
+  local p
+  if [ "${1:-}" = "--tool" ]; then p="$TOOL"; shift; else need_vault; p="$VAULT"; fi
+  # brain.cmd sets BRAIN_NATIVE, so PowerShell and cmd get a path they can cd to.
+  if { [ "${1:-}" = "--native" ] || [ -n "${BRAIN_NATIVE:-}" ]; } && command -v cygpath >/dev/null 2>&1; then
     cygpath -w -- "$p"
   else
     printf '%s\n' "$p"
@@ -554,10 +557,10 @@ cmd_lint() {
 
   if [ "$staged" -eq 1 ]; then
     lines=$(git -C "$VAULT" diff --cached -U0 --src-prefix=a/ --dst-prefix=b/ -- '*.md' \
-      | awk '/^\+\+\+ b\//{f=substr($0,7)} /^\+[^+]/{printf "%s\037%s\n", f, substr($0,2)}')
+      | awk '{sub(/\r$/, "")} /^\+\+\+ b\//{f=substr($0,7)} /^\+[^+]/{printf "%s\037%s\n", f, substr($0,2)}')
   else
     local files=("$@"); [ "${#files[@]}" -eq 0 ] && files=($CORE)
-    lines=$(cd "$VAULT" && awk '{printf "%s\037%s\n", FILENAME, $0}' "${files[@]}")
+    lines=$(cd "$VAULT" && awk '{sub(/\r$/, ""); printf "%s\037%s\n", FILENAME, $0}' "${files[@]}")
   fi
 
   while IFS=$'\037' read -r file text; do
@@ -965,6 +968,16 @@ cmd_install() {
   echo "cli:"
   if [ "$DRY" -eq 1 ]; then
     say "cli link: $bindir/brain"
+  elif [ "$os" = windows ]; then
+    # MSYS `ln -s` silently copies unless Developer Mode is on, and a copy puts
+    # TOOL at $HOME: no adapters, no synonyms, and stale after every pull. A
+    # wrapper runs the checkout itself, and brain.cmd is what PowerShell and cmd
+    # resolve — through this bash by full path, never PATH's system32\bash.exe,
+    # which is WSL.
+    printf '#!/usr/bin/env bash\nexec %q "$@"\n' "$TOOL/bin/brain" > "$bindir/brain" && chmod +x "$bindir/brain"
+    printf '@echo off\r\nsetlocal\r\nset BRAIN_NATIVE=1\r\n"%s" "%s" %%*\r\nexit /b %%ERRORLEVEL%%\r\n' \
+      "$(cygpath -w "$BASH")" "$(cygpath -m "$TOOL/bin/brain")" > "$bindir/brain.cmd"
+    say "cli wrappers: $bindir/brain, $bindir/brain.cmd -> $TOOL/bin/brain"
   elif ln -sf "$TOOL/bin/brain" "$bindir/brain" 2>/dev/null; then
     say "cli link: $bindir/brain"
   else
@@ -976,6 +989,7 @@ cmd_install() {
   else
     path_rc_files | while IFS= read -r rc; do rc_block "$rc" "export PATH=\"$bindir:\$PATH\"" "path"; done
     note "open a new shell, or: export PATH=\"$bindir:\$PATH\""
+    [ "$os" = windows ] && note "for PowerShell and cmd, add $(cygpath -w "$bindir") to the user PATH"
   fi
 
   echo "git hooks:"
@@ -1010,9 +1024,15 @@ cmd_install() {
     say "agents link: $agents -> $VAULT/AI/AGENTS.md"
   else
     mkdir -p "$HOME/.agents"
-    ln -sfn "$VAULT/AI/AGENTS.md" "$agents" 2>/dev/null \
-      && say "agents link: $agents -> $VAULT/AI/AGENTS.md" \
-      || say "could not link $agents (copy it by hand)"
+    # nativestrict makes MSYS fail rather than copy when Windows refuses a
+    # symlink (no Developer Mode); a copy is then made on purpose, and said so.
+    if MSYS=winsymlinks:nativestrict ln -sfn "$VAULT/AI/AGENTS.md" "$agents" 2>/dev/null && [ -L "$agents" ]; then
+      say "agents link: $agents -> $VAULT/AI/AGENTS.md"
+    elif cp -f "$VAULT/AI/AGENTS.md" "$agents" 2>/dev/null; then
+      say "copied $agents (no symlink support; re-run install after editing AGENTS.md)"
+    else
+      say "could not link $agents (copy it by hand)"
+    fi
   fi
   # Tilde imports are supported, so this block is identical on every machine.
   block_apply "$HOME/.claude/CLAUDE.md" "claude" '<!--' '-->' \
@@ -1031,9 +1051,9 @@ said in past agent conversations. Do not hard-code the path."
   local a
   for a in "$HOME/.pi/agent/AGENTS.md" "$HOME/.codex/AGENTS.md"; do
     if [ -e "$a" ]; then
-      if [ "$(resolve_dir "$a")/$(basename "$(readlink -f "$a" 2>/dev/null || echo "$a")")" = "$VAULT/AI/AGENTS.md" ] || [ -r "$a" ]; then
-        note "$a resolves (pointer-only by design; left alone)"
-      fi
+      # readlink -f is GNU-only; readable is all this needs to know.
+      if [ -r "$a" ]; then note "$a resolves (pointer-only by design; left alone)"
+      else note "$a exists but is not readable"; fi
     else
       note "$a absent — link it to $agents if that agent is used here"
     fi
@@ -1055,7 +1075,7 @@ cmd_uninstall() {
     block_remove "$rc" "path"; block_remove "$rc" "guards"
   done
   block_remove "$HOME/.claude/CLAUDE.md" "claude"
-  for f in "$HOME/.config/environment.d/10-brain-shims.conf" "$CONF_VAULT" "$(pick_bindir)/brain"; do
+  for f in "$HOME/.config/environment.d/10-brain-shims.conf" "$CONF_VAULT" "$(pick_bindir)/brain" "$(pick_bindir)/brain.cmd"; do
     [ -e "$f" ] || continue
     say "remove $f"
     [ "$DRY" -eq 1 ] || rm -f "$f"

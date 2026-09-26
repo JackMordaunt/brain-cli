@@ -117,7 +117,13 @@ suite against it, so the tests pass on a machine with no notes at all.
 ## Requirements
 
 `bash`, `git`, and a `sqlite3` built with FTS5. `gitleaks` is optional and
-improves `brain secrets`.
+improves `brain secrets`. `brain recall` needs `jq`.
+
+On Windows, run `brain install` from Git Bash; native `sqlite3.exe` and `jq.exe`
+(from scoop or winget) both work. Install writes two launchers into the bin
+directory: `brain` for Git Bash and `brain.cmd` for PowerShell and cmd, which
+runs Git's bash by full path and makes `brain locate` print a Windows path.
+Both run this checkout, so a `git pull` needs no re-install.
 
 ## Development
 

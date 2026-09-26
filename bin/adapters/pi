@@ -12,20 +12,21 @@
 set -uo pipefail
 
 ROOT="${PI_HOME:-$HOME/.pi}/agent/sessions"
+# A native jq.exe writes CRLF, so every jq read below ends in tr -d '\r'.
 
 emit() {
   local f=$1 sid title cwd
   [ -f "$f" ] || return 0
 
   title=$(grep -h '"conversation-title"' "$f" 2>/dev/null | tail -1 \
-          | jq -r '.data.title // empty' 2>/dev/null || true)
+          | jq -r '.data.title // empty' 2>/dev/null | tr -d '\r' || true)
   [ -n "$title" ] || title=$(grep -h '"type":"session_info"' "$f" 2>/dev/null | tail -1 \
-          | jq -r '.name // empty' 2>/dev/null || true)
+          | jq -r '.name // empty' 2>/dev/null | tr -d '\r' || true)
   [ -n "$title" ] || return 0
 
-  sid=$(head -1 "$f" | jq -r '.id // empty' 2>/dev/null || true)
+  sid=$(head -1 "$f" | jq -r '.id // empty' 2>/dev/null | tr -d '\r' || true)
   if [ -z "$sid" ]; then sid=${f##*/}; sid=${sid%.jsonl}; sid=${sid#*_}; fi
-  cwd=$(head -1 "$f" | jq -r '.cwd // empty' 2>/dev/null || true)
+  cwd=$(head -1 "$f" | jq -r '.cwd // empty' 2>/dev/null | tr -d '\r' || true)
 
   jq -r --arg sid "$sid" --arg title "$title" --arg cwd "${cwd:-}" '
     select(.type == "message" and (.message.role == "user" or .message.role == "assistant"))
@@ -36,8 +37,12 @@ emit() {
     | select(($b | startswith("<system-reminder>") or startswith("<command-name>")) | not)
     | select(.id != null)
     | [.id, (.timestamp // ""), .message.role, $sid, $title, $cwd,
-       ($b | gsub("[[:space:]]+"; " "))] | @tsv
-  ' "$f" 2>/dev/null || true
+       ($b | gsub("[[:space:]]+"; " "))]
+    # Not @tsv: it writes a backslash as \\ and nothing downstream undoes it,
+    # so every Windows cwd was stored as C:\\Users\\... A row only needs its
+    # tabs and newlines gone.
+    | map(tostring | gsub("[\t\n\r]"; " ")) | join("\t")
+  ' "$f" 2>/dev/null | tr -d '\r' || true
 }
 
 case "${1:-}" in
