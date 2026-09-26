@@ -99,6 +99,31 @@ test: build
     after=$(bin/brain recall --sync | tail -1)
     test "$before" = "$after" && echo "ok recall idempotent ($after)"
 
+    # A vault checked out with CRLF (Git for Windows' default autocrlf) must
+    # parse: a trailing \r hides the date, and every bullet would fail lint.
+    crlf="$BRAIN_STATE/crlf"
+    cp -r testdata/vault "$crlf"
+    for f in "$crlf"/AI/*.md; do awk '{printf "%s\r\n", $0}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; done
+    BRAIN_VAULT="$crlf" BRAIN_STATE="$crlf/.state" bin/brain lint >/dev/null && echo "ok lint reads a CRLF vault" || { echo "FAIL lint on a CRLF vault"; exit 1; }
+    out=$(BRAIN_VAULT="$crlf" BRAIN_STATE="$crlf/.state" bin/brain find sqlite)
+    case "$out" in *'**sqlite**'*) echo "ok find reads a CRLF vault" ;; *) echo "FAIL find on a CRLF vault"; exit 1 ;; esac
+
+    # Install into a throwaway home: the installed command must run this
+    # checkout, not a copy of the script whose TOOL would then be $HOME.
+    # GOPATH and GOBIN are unset so install cannot pick a real bin directory.
+    home="$BRAIN_STATE/home"; mkdir -p "$home/.local/bin"
+    git -C "$BRAIN_VAULT" init -q
+    HOME="$home" XDG_CONFIG_HOME="$home/.config" GOPATH= GOBIN= bin/brain install "$BRAIN_VAULT" >/dev/null
+    # Compared with the checkout's own answer: just hands Windows a C:/ $PWD.
+    tool=$(bin/brain locate --tool)
+    test "$(HOME="$home" XDG_CONFIG_HOME="$home/.config" "$home/.local/bin/brain" locate --tool)" = "$tool" \
+      && echo "ok installed cli runs the checkout" || { echo "FAIL installed cli resolves the wrong TOOL"; exit 1; }
+    if command -v cygpath >/dev/null 2>&1; then
+      # What PowerShell and cmd run. MSYS_NO_PATHCONV keeps /c from becoming C:\.
+      out=$(HOME="$home" XDG_CONFIG_HOME="$home/.config" MSYS_NO_PATHCONV=1 cmd /c "$(cygpath -w "$home/.local/bin/brain.cmd")" locate --tool)
+      test "${out%$'\r'}" = "$(cygpath -w "$tool")" && echo "ok brain.cmd runs the checkout" || { echo "FAIL brain.cmd: '$out'"; exit 1; }
+    fi
+
 # Put the CLI on PATH and bind this machine to a vault.
 install VAULT:
     bin/brain install {{VAULT}}
