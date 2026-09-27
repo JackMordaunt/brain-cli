@@ -177,6 +177,10 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 		return cmd_lint(cli, rest)
 	case "secrets":
 		return cmd_secrets(cli, rest)
+	case "install":
+		return cmd_install(cli, rest)
+	case "uninstall":
+		return cmd_uninstall(cli, rest)
 	case "", "-h", "--help", "help":
 		out(cli, USAGE)
 		return 0
