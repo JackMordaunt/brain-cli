@@ -5,14 +5,16 @@ set -uo pipefail
 root=$(git rev-parse --show-toplevel)
 
 # The CLI ships with the hooks, not with the repository being committed, so it
-# is resolved as this hook's own sibling. `$root/bin/brain` only ever worked
-# because the tool happened to live in the vault; once it moved out that path
-# found nothing and this gate became a silent pass (observed 2026-09-25, when an
-# undated bullet was committed clean). `just test` now asserts the gate fires
+# is resolved as this hook's own sibling: a build in the checkout first, then
+# whatever `brain` is on PATH. `$root/bin/brain` only ever worked because the
+# tool happened to live in the vault; once it moved out that path found
+# nothing and this gate became a silent pass (observed 2026-09-25, when an
+# undated bullet was committed clean). The test suite asserts the gate fires
 # from a repository that does not contain the CLI.
 hookdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
 brain=""
-for c in "$hookdir/../brain" "$root/bin/brain" "$(command -v brain 2>/dev/null)"; do
+for c in "$hookdir/../../build/release/brain" "$hookdir/../../build/debug/brain" \
+         "$(command -v brain 2>/dev/null)" "$hookdir/../brain"; do
   [ -n "$c" ] && [ -x "$c" ] && { brain=$c; break; }
 done
 if [ -z "$brain" ]; then

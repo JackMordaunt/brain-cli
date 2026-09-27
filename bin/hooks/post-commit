@@ -4,7 +4,8 @@
 set -uo pipefail
 root=$(git rev-parse --show-toplevel)
 hookdir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
-for c in "$hookdir/../brain" "$root/bin/brain" "$(command -v brain 2>/dev/null)"; do
+for c in "$hookdir/../../build/release/brain" "$hookdir/../../build/debug/brain" \
+         "$(command -v brain 2>/dev/null)" "$hookdir/../brain"; do
   [ -n "$c" ] && [ -x "$c" ] && { BRAIN_VAULT="$root" "$c" sync >/dev/null 2>&1; break; }
 done
 exit 0
