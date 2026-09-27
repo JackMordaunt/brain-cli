@@ -51,6 +51,19 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
 
+      # jm:http links the system libcurl, so the link needs its dev symlink.
+      # The Odin release's vendor:curl also names mbedtls on Linux, which
+      # the system libcurl does not use (Odin master no longer lists it);
+      # empty archives satisfy those flags without adding a runtime
+      # dependency, and the smoke test checks that nothing but libcurl is
+      # needed.
+      - name: curl link deps (linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
+          mkdir -p "$RUNNER_TEMP/stubs"
+          for l in mbedtls mbedx509 mbedcrypto; do ar rcs "$RUNNER_TEMP/stubs/lib$l.a"; done
+          echo "STUB_LIBS=-extra-linker-flags:-L$RUNNER_TEMP/stubs" >> "$GITHUB_ENV"
       # jm:sqlite3 links an archive built from the vendored amalgamation with
       # jm's own compile options; its recipe builds it on Unix.
       - name: sqlite archive
@@ -83,7 +96,7 @@ jobs:
           mkdir -p build/release
           version=""
           case "$GITHUB_REF" in refs/tags/*) version="-define:VERSION=$GITHUB_REF_NAME" ;; esac
-          odin build . -o:speed -vet -strict-style -collection:jm="$PWD/jm" $version \
+          odin build . -o:speed -vet -strict-style -collection:jm="$PWD/jm" $version $STUB_LIBS \
             -target:${{ matrix.target }} -out:build/release/${{ matrix.asset }}
       - name: smoke test
         if: matrix.target != 'darwin_amd64'
@@ -91,6 +104,10 @@ jobs:
         run: |
           build/release/${{ matrix.asset }} version
           build/release/${{ matrix.asset }} help | head -1
+          if [ "$RUNNER_OS" = Linux ]; then
+            ldd build/release/${{ matrix.asset }}
+            ! ldd build/release/${{ matrix.asset }} | grep -q mbed
+          fi
           BRAIN_VAULT=testdata/vault BRAIN_STATE="$RUNNER_TEMP/state" build/release/${{ matrix.asset }} find sqlite
       - uses: actions/upload-artifact@v4
         with:
