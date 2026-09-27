@@ -15,11 +15,11 @@ committed on your own schedule, never mixed with the CLI's history.
 brain install ~/path/to/your/vault
 ```
 
-That records the vault in `~/.config/brain/vault`, links `brain` onto PATH,
+That records the vault in `~/.config/brain/vault`, puts `brain` on PATH,
 points the vault's git hooks at this checkout, and builds the index.
 
-A single checkout holding both still works: if the directory above `bin/` has an
-`AI/` in it, that is the vault too.
+A single checkout holding both still works: if the checkout has an `AI/` in
+it, that is the vault too.
 
 ## Use
 
@@ -66,17 +66,14 @@ a second file can still surface its earlier half; `--all` turns the filter off.
 
 ### Adding an agent
 
-One executable in `bin/adapters/`, and `brain` needs no change:
-
-```
-<adapter> --list          every transcript path on this machine
-<adapter> --emit <path>   that transcript's turns, one TSV row each:
-                          id, timestamp, role, session, title, cwd, body
-```
+One `Adapter` in `brain/adapters.odin`: a `list` proc that names every
+transcript on the machine and an `emit` proc that turns one transcript into
+`Turn` values (id, timestamp, role, session, title, cwd, body). Add it to
+`ADAPTERS` and `brain recall --enable <name>` knows it.
 
 A transcript with no title is a headless API run, not a conversation, and should
-emit nothing — that is the difference between ~2300 files and the ~260 worth
-recalling.
+emit nothing — that is the difference between every file on disk and the few
+worth recalling.
 
 ## The vault's shape
 
@@ -99,36 +96,44 @@ sets aside those a later edit answered. `brain doctor` uses the same log to name
 bullets returned often enough that a gate or a project file should carry them.
 
 `testdata/vault` is a fixture of exactly this shape; `just test` runs the whole
-suite against it, so the tests pass on a machine with no notes at all.
+suite against a copy of it, so the tests pass on a machine with no notes at all.
 
 ## What is in here
 
 | file | what it is |
 |------|------------|
-| `bin/brain` | the CLI |
-| `bin/hooks/pre-commit` | runs `brain lint --staged`; hard failures block the commit |
+| `main.odin` | the entry point |
+| `brain/` | the CLI: vault scanner, index, every subcommand, and their tests |
+| `bin/hooks/pre-commit` | runs `brain lint --staged` and `brain secrets --staged`; hard failures block the commit |
 | `bin/hooks/commit-msg` | delegates to the global hook, which a repo-local `core.hooksPath` would otherwise shadow |
 | `bin/hooks/post-commit` | resyncs the index after every commit |
 | `bin/shims/` | PATH shims that refuse commands the vault records as traps |
 | `bin/synonyms.tsv` | query expansion; the vocabulary ships with the CLI |
-| `bin/adapters/` | one per agent; turns its transcripts into rows `brain recall` can index |
-| `testdata/vault/` | the fixture the test suite runs against |
+| `.gitleaks.toml` | the default ruleset `brain secrets` applies |
+| `testdata/` | the fixture vault and transcripts the test suite runs against |
 
 ## Requirements
 
-`bash`, `git`, and a `sqlite3` built with FTS5. `gitleaks` is optional and
-improves `brain secrets`. `brain recall` needs `jq`.
+To run: one static binary. SQLite with FTS5 is linked in; nothing is needed on
+PATH. `git` is used by `brain lint --staged`, `brain secrets`, and the hooks.
+`gitleaks` is optional and improves `brain secrets`.
 
-On Windows, run `brain install` from Git Bash; native `sqlite3.exe` and `jq.exe`
-(from scoop or winget) both work. Install writes two launchers into the bin
-directory: `brain` for Git Bash and `brain.cmd` for PowerShell and cmd, which
-runs Git's bash by full path and makes `brain locate` print a Windows path.
-Both run this checkout, so a `git pull` needs no re-install.
+To build: [Odin](https://odin-lang.org) and the
+[jm collection](https://github.com/jackmordaunt/jm), checked out beside this
+repository or named by `JM=<path>`, with its SQLite archive built
+(`just sqlite` there).
+
+On Windows, `brain install` copies the binary to `~/.local/bin`; add that
+directory to the user PATH for PowerShell and cmd. Git Bash users get it from
+`.bashrc`. The recorded tool path keeps the copy pointed at this checkout, so
+`git pull` needs no re-install; a rebuild does.
 
 ## Development
 
 ```
-just build     syntax-check every script
-just test      run against the fixture vault
+just build     debug binary with the debug allocator and ASan -> build/debug
+just release   optimised binary                                -> build/release
+just test      the package's tests against the fixture vault
+just check     type-check for linux, darwin and windows
 just install   bind this machine to a vault
 ```
