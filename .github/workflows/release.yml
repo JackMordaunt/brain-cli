@@ -1,21 +1,36 @@
-# Builds the static binary for each platform on a version tag and publishes
-# them with a sha256sums.txt, which is what install.cmd downloads.
+# Builds the static binary for each platform and, on a version tag, publishes
+# them with a sha256sums.txt, which is what install.cmd downloads. A manual
+# run builds and smoke-tests every target without publishing.
 name: release
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  ODIN_RELEASE: dev-2026-09
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
+            target: linux_amd64
             asset: brain-linux-amd64
           - os: macos-latest
+            target: darwin_arm64
             asset: brain-darwin-arm64
+          # Intel macOS is cross-compiled on the arm64 runner: the SQLite
+          # archive is built with -arch x86_64 and Odin links for the target.
+          - os: macos-latest
+            target: darwin_amd64
+            asset: brain-darwin-amd64
+            cc: cc -arch x86_64
           - os: windows-latest
+            target: windows_amd64
             asset: brain-windows-amd64.exe
     runs-on: ${{ matrix.os }}
     steps:
@@ -24,29 +39,52 @@ jobs:
         with:
           repository: JackMordaunt/jm
           path: jm
-      - uses: laytanl/setup-odin@v2
+      - uses: laytan/setup-odin@v2.12.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          release: dev-2026-09
-      - uses: extractions/setup-just@v2
+          release: ${{ env.ODIN_RELEASE }}
+      - uses: extractions/setup-just@v3
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
-      # The jm sqlite3 package links an archive built from the vendored
-      # amalgamation; its own recipe builds it.
-      - run: just sqlite
-        working-directory: jm
-      - run: just release
-        env:
-          JM: ${{ github.workspace }}/jm
-      - run: cp build/release/brain${{ runner.os == 'Windows' && '.exe' || '' }} ${{ matrix.asset }}
+
+      # jm:sqlite3 links an archive built from the vendored amalgamation with
+      # jm's own compile options; its recipe builds it on Unix.
+      - name: sqlite archive
+        if: runner.os != 'Windows'
         shell: bash
+        run: cd jm && CC="${{ matrix.cc || 'cc' }}" just sqlite
+      # jm's Windows recipe is written for PowerShell; the same defines are
+      # read from its justfile and given to cl directly.
+      - name: sqlite archive (windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          defines=$(cd jm && just --evaluate sqlite_defines)
+          cd jm/sqlite3 && mkdir -p lib
+          cl /nologo /O2 /c vendor/sqlite3.c /Folib/sqlite3.obj $defines
+          lib /nologo /OUT:lib/sqlite3.lib lib/sqlite3.obj
+
+      - name: build
+        shell: bash
+        run: |
+          mkdir -p build/release
+          odin build . -o:speed -vet -strict-style -collection:jm="$PWD/jm" \
+            -target:${{ matrix.target }} -out:build/release/${{ matrix.asset }}
+      - name: smoke test
+        if: matrix.target != 'darwin_amd64'
+        shell: bash
+        run: |
+          build/release/${{ matrix.asset }} help | head -1
+          BRAIN_VAULT=testdata/vault BRAIN_STATE="$RUNNER_TEMP/state" build/release/${{ matrix.asset }} find sqlite
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
-          path: ${{ matrix.asset }}
+          path: build/release/${{ matrix.asset }}
+          if-no-files-found: error
 
   publish:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
