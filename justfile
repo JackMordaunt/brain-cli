@@ -43,10 +43,40 @@ check:
 # install into a throwaway home, then a syntax check of the hooks and shims.
 # One thread: tests that spawn git deadlock in parallel on Windows, where a
 # child inherits another child's pipe and its parent never reads EOF.
-test: build
+test: build test-installer
     mkdir -p build/test
     {{odin}} test brain {{san}} {{flags}} -define:ODIN_TEST_THREADS=1 -out:build/test/brain{{exe}}
     @for f in bin/hooks/* bin/shims/*; do bash -n "$f" && echo "ok $f"; done
+
+# install.cmd against a fake release on disk: the release binary under the
+# name CI would publish, a sha256sums.txt beside it, served over file://.
+# The sh half runs everywhere; on Windows the cmd half runs too, and both
+# must refuse an asset whose checksum no longer matches.
+test-installer: release
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in Linux*) os=linux;; Darwin*) os=darwin;; *) os=windows;; esac
+    case "$(uname -m)" in x86_64|amd64) arch=amd64;; *) arch=arm64;; esac
+    asset="brain-$os-$arch{{exe}}"
+    rel="$(mktemp -d)/release"; bin="$(mktemp -d)/bin"
+    trap 'rm -rf "$(dirname "$rel")" "$(dirname "$bin")"' EXIT
+    mkdir -p "$rel" && cp "build/release/brain{{exe}}" "$rel/$asset"
+    (cd "$rel" && { command -v sha256sum >/dev/null && sha256sum brain-* || shasum -a 256 brain-*; } > sha256sums.txt)
+    p=$(cygpath -m "$rel" 2>/dev/null || printf '%s' "$rel")
+    export BRAIN_RELEASE_BASE="file:///${p#/}"
+    BRAIN_BINDIR="$bin/sh" sh install.cmd >/dev/null
+    test "$("$bin/sh/brain{{exe}}" locate --tool)" = "$(build/release/brain{{exe}} locate --tool)" && echo "ok install.cmd (sh)"
+    if command -v cygpath >/dev/null 2>&1; then
+      MSYS_NO_PATHCONV=1 cmd /c "set BRAIN_BINDIR=$(cygpath -w "$bin")\cmd&& $(cygpath -w "$PWD")\install.cmd" >/dev/null
+      test "$("$bin/cmd/brain.exe" locate --tool)" = "$(build/release/brain.exe locate --tool)" && echo "ok install.cmd (cmd)"
+    fi
+    printf x >> "$rel/$asset"
+    if BRAIN_BINDIR="$bin/t" sh install.cmd >/dev/null 2>&1; then echo "FAIL install.cmd accepted a bad checksum"; exit 1; fi
+    echo "ok install.cmd refuses a bad checksum (sh)"
+    if command -v cygpath >/dev/null 2>&1; then
+      if MSYS_NO_PATHCONV=1 cmd /c "set BRAIN_BINDIR=$(cygpath -w "$bin")\t2&& $(cygpath -w "$PWD")\install.cmd" >/dev/null 2>&1; then echo "FAIL install.cmd (cmd) accepted a bad checksum"; exit 1; fi
+      echo "ok install.cmd refuses a bad checksum (cmd)"
+    fi
 
 # Put the CLI on PATH and bind this machine to a vault.
 install VAULT: release
