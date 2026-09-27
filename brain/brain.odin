@@ -165,6 +165,8 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 		return cmd_locate(cli, rest)
 	case "find":
 		return cmd_find(cli, rest)
+	case "recall":
+		return cmd_recall(cli, rest)
 	case "sync":
 		return cmd_sync(cli, rest)
 	case "log":
