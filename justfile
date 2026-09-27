@@ -40,10 +40,12 @@ check:
     done
 
 # The package's own tests, then a syntax check of the shell suite that still
-# drives bin/brain.
+# drives bin/brain. One thread: tests that spawn git deadlock in parallel on
+# Windows, where a child inherits another child's pipe and its parent never
+# reads EOF.
 test: build
     mkdir -p build/test
-    {{odin}} test brain {{san}} {{flags}} -out:build/test/brain{{exe}}
+    {{odin}} test brain {{san}} {{flags}} -define:ODIN_TEST_THREADS=1 -out:build/test/brain{{exe}}
     @for f in bin/brain bin/hooks/* bin/shims/*; do bash -n "$f" && echo "ok $f"; done
 
 # Put the CLI on PATH and bind this machine to a vault.
