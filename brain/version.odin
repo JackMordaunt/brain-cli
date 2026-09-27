@@ -9,7 +9,10 @@ import "jm:selfupdate"
 // development build and leaves alone.
 VERSION :: #config(VERSION, "")
 
-REPO :: "JackMordaunt/brain-cli"
+// Where releases are served. Any host that serves the asset, sha256sums.txt,
+// its signature and version.txt under one path works; this is the GitHub
+// one. BRAIN_RELEASE_BASE overrides it.
+RELEASE_BASE :: "https://github.com/JackMordaunt/brain-cli/releases/latest/download"
 
 // ASSET is this build's file name in a release.
 when ODIN_OS == .Windows {
@@ -37,8 +40,7 @@ cmd_version :: proc(cli: ^Cli, args: []string) -> int {
 update_config :: proc(cli: ^Cli, mode: selfupdate.Mode) -> selfupdate.Config {
 	key, _ := selfupdate.key_from_hex(PUBLIC_KEY)
 	return selfupdate.Config {
-		repo = REPO,
-		base_url = getenv(cli, "BRAIN_RELEASE_BASE"),
+		base_url = getenv(cli, "BRAIN_RELEASE_BASE", RELEASE_BASE),
 		version = VERSION,
 		asset = ASSET,
 		public_key = key,
