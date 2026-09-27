@@ -16,6 +16,22 @@ fake_github_token :: proc() -> string {
 	return strings.concatenate({"gh", "p_", strings.repeat("q", 20), strings.repeat("Q", 20)})
 }
 
+// The default ruleset ships inside the binary and is written out for
+// gitleaks, unless the vault carries its own.
+@(test)
+gitleaks_ruleset_comes_from_the_binary :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	cfg := gitleaks_config(f.cli)
+	testing.expect_value(t, cfg, path.join(f.state, "gitleaks.toml"))
+	body, err := path.read(cfg)
+	testing.expect_value(t, err, nil)
+	testing.expect(t, strings.contains(body, "vault-connection-string"), body[:min(len(body), 200)])
+	testing.expect_value(t, path.write(path.join(f.vault, ".gitleaks.toml"), "title = \"own\"\n"), nil)
+	testing.expect_value(t, gitleaks_config(f.cli), path.join(f.vault, ".gitleaks.toml"))
+}
+
 @(test)
 fallback_patterns_catch_keys_and_skip_shas :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator

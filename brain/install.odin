@@ -266,7 +266,8 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 		note(cli, "warning: %s has no AI/ — is that the vault?", vault)
 	}
 	kind := os_kind()
-	shims := path.join(cli.tool, "bin", "shims")
+	shims := path.join(cli.conf_dir, "shims")
+	hooks := path.join(cli.conf_dir, "hooks")
 	bindir := pick_bindir(cli)
 
 	outf(cli, "tool:  %s\n", cli.tool)
@@ -275,20 +276,26 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 		path.mkdirs(cli.state)
 		record(cli, cli.conf_vault, vault)
 		record(cli, path.join(cli.conf_dir, "tool"), cli.tool)
-		when ODIN_OS != .Windows {
-			for d in ([2]string{path.join(cli.tool, "bin", "hooks"), shims}) {
-				if names, err := path.list(d); err == nil {
-					for n in names {
-						os.change_mode(path.join(d, n), os.Permissions_All - os.Permissions_Write_All + {.Write_User})
-					}
-				}
-			}
-		}
 	}
 	say(cli, "vault path recorded: %s", cli.conf_vault)
 
 	out(cli, "cli:\n")
-	install_binary(cli, bindir)
+	installed := install_binary(cli, bindir)
+	// The hooks and shims are compiled into the binary and written out
+	// here, with the binary's own path inside each hook: git runs hooks
+	// with whatever PATH it has, which in a GUI or a service is not the
+	// user's shell PATH.
+	if !cli.dry {
+		hook_files := HOOKS
+		shim_files := SHIMS
+		if err := write_executables(hooks, hook_files[:], posix_path(installed)); err != nil {
+			note(cli, "cannot write %s: %v", hooks, err)
+		}
+		if err := write_executables(shims, shim_files[:], posix_path(installed)); err != nil {
+			note(cli, "cannot write %s: %v", shims, err)
+		}
+	}
+	say(cli, "hooks and shims written under %s", cli.conf_dir)
 	if on_path(cli, bindir) {
 		note(cli, "%s is already on PATH", bindir)
 	} else {
@@ -302,10 +309,7 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 	}
 
 	out(cli, "git hooks:\n")
-	// The hooks ship with the tool, so this path leaves the vault: it has to
-	// be absolute, and re-running install is what fixes it after either
-	// repository moves.
-	hooks := path.join(cli.tool, "bin", "hooks")
+	// The hooks live outside the vault, so this path has to be absolute.
 	if !cli.dry {
 		sh.exec({"git", "config", "core.hooksPath", hooks}, {dir = vault})
 	}
@@ -414,7 +418,8 @@ CLAUDE_BLOCK :: "@~/.agents/AGENTS.md\n\nThe Brain is this machine's shared agen
 // (Windows without Developer Mode) the file is copied and the recorded tool
 // path keeps it pointed at the checkout. The shell version's wrappers are
 // removed, because Git Bash would run a `brain` script before `brain.exe`.
-install_binary :: proc(cli: ^Cli, bindir: string) {
+install_binary :: proc(cli: ^Cli, bindir: string) -> (dest: string) {
+	dest = path.join(bindir, strings.concatenate({"brain", EXE}))
 	// BRAIN_EXE names another build to install, for a script that installs
 	// a release binary and for the tests, whose running executable is the
 	// test runner.
@@ -427,7 +432,6 @@ install_binary :: proc(cli: ^Cli, bindir: string) {
 		}
 		exe = found
 	}
-	dest := path.join(bindir, strings.concatenate({"brain", EXE}))
 	if cli.dry {
 		say(cli, "cli: %s -> %s", dest, exe)
 		return
@@ -451,6 +455,7 @@ install_binary :: proc(cli: ^Cli, bindir: string) {
 	} else {
 		say(cli, "could not install %s (copy it by hand)", dest)
 	}
+	return
 }
 
 // link_or_copy replaces link with a symlink to target and reports whether
@@ -493,6 +498,15 @@ cmd_uninstall :: proc(cli: ^Cli, args: []string) -> int {
 		say(cli, "remove %s", f)
 		if !cli.dry {
 			os.remove(f)
+		}
+	}
+	for d in ([2]string{path.join(cli.conf_dir, "hooks"), path.join(cli.conf_dir, "shims")}) {
+		if !os.is_dir(d) {
+			continue
+		}
+		say(cli, "remove %s", d)
+		if !cli.dry {
+			os.remove_all(d)
 		}
 	}
 	note(cli, "left alone: ~/.agents/AGENTS.md, the index in %s, and the vault", cli.state)

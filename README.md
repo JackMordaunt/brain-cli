@@ -125,6 +125,12 @@ suite against a copy of it, so the tests pass on a machine with no notes at all.
 | `.gitleaks.toml` | the default ruleset `brain secrets` applies |
 | `testdata/` | the fixture vault and transcripts the test suite runs against |
 
+The hooks, shims, synonyms and gitleaks ruleset are compiled into the binary.
+`brain install` writes the hooks and shims under `~/.config/brain/` with the
+binary's own path inside them, so a release binary needs no checkout and a
+hook runs whatever PATH git was started with. Edit the files here; a rebuild
+picks them up.
+
 ## Requirements
 
 To run: one static binary. SQLite with FTS5 is linked in; nothing is needed on
@@ -136,10 +142,10 @@ To build: [Odin](https://odin-lang.org) and the
 repository or named by `JM=<path>`, with its SQLite archive built
 (`just sqlite` there).
 
-On Windows, `brain install` copies the binary to `~/.local/bin`; add that
-directory to the user PATH for PowerShell and cmd. Git Bash users get it from
-`.bashrc`. The recorded tool path keeps the copy pointed at this checkout, so
-`git pull` needs no re-install; a rebuild does.
+On Windows, `brain install` links the binary into `~/.local/bin` (Developer
+Mode) or copies it; add that directory to the user PATH for PowerShell and
+cmd. Git Bash users get it from `.bashrc`. Re-run install after a rebuild
+when the binary was copied.
 
 ## Development
 

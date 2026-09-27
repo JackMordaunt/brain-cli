@@ -72,7 +72,15 @@ install_binds_a_home_and_the_installed_cli_names_the_checkout :: proc(t: ^testin
 	testing.expect_value(t, recorded_path(f.cli.conf_vault), f.vault)
 	testing.expect_value(t, recorded_path(path.join(f.cli.conf_dir, "tool")), f.cli.tool)
 	hooks, _ := sh.out("git config core.hooksPath", {dir = f.vault})
-	testing.expect_value(t, hooks, path.join(f.cli.tool, "bin", "hooks"))
+	testing.expect_value(t, hooks, path.join(f.cli.conf_dir, "hooks"))
+	// The hooks are written from the binary, with its installed path baked
+	// in, so the gate runs where PATH is not the user's.
+	pre, perr := path.read(path.join(hooks, "pre-commit"))
+	testing.expect_value(t, perr, nil)
+	testing.expect(t, strings.contains(pre, "installed=\"/") || strings.contains(pre, "installed=\"C"), pre[:min(len(pre), 400)])
+	testing.expect(t, !strings.contains(pre, "installed=\"\""), "the marker was replaced")
+	testing.expect(t, os.is_file(path.join(f.cli.conf_dir, "shims", "omarchy-refresh-shell")), "shims are written too")
+	testing.expect(t, count_int(t, f, "select count(*) from synonyms") > 0, "synonyms come from the binary")
 	agents := path.join(f.home, ".agents", "AGENTS.md")
 	testing.expect(t, !os.exists(agents) || true, "agents link is best effort; the fixture has no AGENTS.md")
 	claude_md, _ := path.read(path.join(f.home, ".claude", "CLAUDE.md"))
@@ -81,7 +89,7 @@ install_binds_a_home_and_the_installed_cli_names_the_checkout :: proc(t: ^testin
 	testing.expect(t, strings.contains(bashrc, "brain:path >>>") && strings.contains(bashrc, "brain:guards >>>"), bashrc)
 	// Git Bash splits PATH on the colon, so a C:\ path in .bashrc is broken.
 	testing.expect(t, !strings.contains(bashrc, ":\\"), bashrc)
-	testing.expect(t, strings.contains(bashrc, "bin/shims:$PATH"), bashrc)
+	testing.expect(t, strings.contains(bashrc, "/brain/shims:$PATH"), bashrc)
 
 	installed := path.join(f.home, ".local", "bin", strings.concatenate({"brain", EXE}))
 	testing.expect(t, os.is_file(installed) || is_link(installed), installed)
@@ -92,9 +100,20 @@ install_binds_a_home_and_the_installed_cli_names_the_checkout :: proc(t: ^testin
 	testing.expect(t, r.ok, sh.error(r))
 	testing.expect_value(t, strings.trim_space(r.stdout), f.vault)
 
+	// The installed hooks gate a commit in the vault, with no checkout on PATH.
+	git(t, f.vault, "add", "-A")
+	r = sh.exec({"git", "-c", "user.email=t@example.com", "-c", "user.name=test", "commit", "-q", "-m", "clean"}, {dir = f.vault, env = child_env(f)})
+	testing.expect(t, r.ok, sh.error(r))
+	testing.expect_value(t, path.append_file(path.join(f.vault, "AI", "MEMORY.md"), "- **undated** (aliases: x) — no date — fixture\n"), nil)
+	git(t, f.vault, "add", "-A")
+	r = sh.exec({"git", "-c", "user.email=t@example.com", "-c", "user.name=test", "commit", "-q", "-m", "probe"}, {dir = f.vault, env = child_env(f)})
+	testing.expect(t, !r.ok, "the installed pre-commit hook let an undated bullet through")
+	testing.expect(t, strings.contains(strings.concatenate({r.stdout, r.stderr}), "has no trailing ISO date"), r.stderr)
+
 	o, _, code = exec(f.cli, "uninstall")
 	testing.expect_value(t, code, 0)
 	testing.expect(t, !os.exists(f.cli.conf_vault), "the vault binding is gone")
+	testing.expect(t, !os.exists(hooks), "the written hooks are gone")
 	testing.expect(t, !os.exists(installed) && !is_link(installed), "the command is gone")
 	bashrc, _ = path.read(path.join(f.home, ".bashrc"))
 	testing.expect(t, !strings.contains(bashrc, "brain:"), bashrc)

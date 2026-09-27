@@ -192,13 +192,13 @@ build_index :: proc(cli: ^Cli, db: sqlite3.Db, files: []string) -> string {
 	}
 	// Synonyms ship with the tool, so the vocabulary travels with the CLI
 	// rather than with one person's notes.
-	if tsv, err := os.read_entire_file_from_path(path.join(cli.tool, "bin", "synonyms.tsv"), context.allocator); err == nil {
+	{
 		ins_syn, e5 := sqlite3.prepare(db, "insert into synonyms(term,expansion) values(?,?)")
 		if e5 != nil {
 			return sql_err(e5)
 		}
 		defer sqlite3.finish(&ins_syn)
-		rest := string(tsv)
+		rest := SYNONYMS_TSV
 		n := 0
 		for line in strings.split_lines_iterator(&rest) {
 			n += 1

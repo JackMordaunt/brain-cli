@@ -26,13 +26,17 @@ find_gitleaks :: proc(cli: ^Cli) -> (string, bool) {
 }
 
 // A vault may carry its own allowlist; otherwise the tool's default ruleset
-// applies, so a fresh clone is still scanned.
+// applies, so a fresh clone is still scanned. gitleaks reads a file, so the
+// embedded ruleset is written under the state directory on every run.
 gitleaks_config :: proc(cli: ^Cli) -> string {
 	own := path.join(cli.vault, ".gitleaks.toml")
 	if os.is_file(own) {
 		return own
 	}
-	return path.join(cli.tool, ".gitleaks.toml")
+	path.mkdirs(cli.state)
+	p := path.join(cli.state, "gitleaks.toml")
+	path.write(p, GITLEAKS_TOML)
+	return p
 }
 
 // A floor for machines without gitleaks: only patterns that cannot plausibly
