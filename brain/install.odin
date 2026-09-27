@@ -266,7 +266,6 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 		note(cli, "warning: %s has no AI/ — is that the vault?", vault)
 	}
 	kind := os_kind()
-	shims := path.join(cli.conf_dir, "shims")
 	hooks := path.join(cli.conf_dir, "hooks")
 	bindir := pick_bindir(cli)
 
@@ -281,21 +280,16 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 
 	out(cli, "cli:\n")
 	installed := install_binary(cli, bindir)
-	// The hooks and shims are compiled into the binary and written out
-	// here, with the binary's own path inside each hook: git runs hooks
-	// with whatever PATH it has, which in a GUI or a service is not the
-	// user's shell PATH.
+	// The hooks are compiled into the binary and written out here, with the
+	// binary's own path inside each: git runs hooks with whatever PATH it
+	// has, which in a GUI or a service is not the user's shell PATH.
 	if !cli.dry {
 		hook_files := HOOKS
-		shim_files := SHIMS
 		if err := write_executables(hooks, hook_files[:], posix_path(installed)); err != nil {
 			note(cli, "cannot write %s: %v", hooks, err)
 		}
-		if err := write_executables(shims, shim_files[:], posix_path(installed)); err != nil {
-			note(cli, "cannot write %s: %v", shims, err)
-		}
 	}
-	say(cli, "hooks and shims written under %s", cli.conf_dir)
+	say(cli, "hooks written under %s", hooks)
 	if on_path(cli, bindir) {
 		note(cli, "%s is already on PATH", bindir)
 	} else {
@@ -315,35 +309,10 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	say(cli, "core.hooksPath = %s", hooks)
 
-	out(cli, "guards:\n")
-	// The old shell-function guard, superseded by the shims.
-	bashrc := path.join(cli.home, ".bashrc")
-	if text, ok := read_text(bashrc); ok && strings.contains(text, "brain-guards.sh") {
-		say(cli, "%s: removing the superseded shell-function guard", bashrc)
-		if !cli.dry {
-			kept := make([dynamic]string)
-			for l in strings.split_lines(text) {
-				if strings.contains(l, "brain-guards.sh") || strings.has_prefix(l, "# Brain guards: refuse") {
-					continue
-				}
-				append(&kept, l)
-			}
-			path.write(bashrc, strings.join(kept[:], "\n"))
-		}
-	}
-	for rc in path_rc_files(cli) {
-		rc_block(cli, rc, fmt.aprintf("export PATH=\"%s:$PATH\"", posix_path(shims)), "guards")
-	}
-	if kind == "linux" {
-		envd := path.join(cli.home, ".config", "environment.d", "10-brain-shims.conf")
-		say(cli, "%s — covers every shell in the session, from the next login", envd)
-		if !cli.dry {
-			path.mkdirs(path.dir(envd))
-			path.write(envd, fmt.aprintf("# Brain guards: refuse commands recorded as traps.\nPATH=%s:${PATH}\n", shims))
-		}
-	} else {
-		note(cli, "on %s only shells reading the files above are covered", kind)
-	}
+	// Earlier versions installed PATH shims that refused commands the vault
+	// recorded as traps. The guarded commands were vault knowledge hard-coded
+	// into the tool, so the shims went; what they left behind is removed.
+	remove_guards(cli)
 
 	out(cli, "agent bindings:\n")
 	// ~/.agents/AGENTS.md is the canonical binding: pi and Codex already
@@ -475,17 +444,54 @@ is_link :: proc(p: string) -> bool {
 	return err == nil
 }
 
+// remove_guards undoes what the shell-era guard shims installed: the rc
+// block that put them on PATH, the environment.d entry, the written shims,
+// and the still older shell-function guard line in .bashrc. Nothing is
+// printed when there is nothing to remove.
+remove_guards :: proc(cli: ^Cli) {
+	for rc in path_rc_files(cli) {
+		block_remove(cli, rc, "guards")
+	}
+	bashrc := path.join(cli.home, ".bashrc")
+	if text, ok := read_text(bashrc); ok && strings.contains(text, "brain-guards.sh") {
+		say(cli, "%s: removing the superseded shell-function guard", bashrc)
+		if !cli.dry {
+			kept := make([dynamic]string)
+			for l in strings.split_lines(text) {
+				if strings.contains(l, "brain-guards.sh") || strings.has_prefix(l, "# Brain guards: refuse") {
+					continue
+				}
+				append(&kept, l)
+			}
+			path.write(bashrc, strings.join(kept[:], "\n"))
+		}
+	}
+	envd := path.join(cli.home, ".config", "environment.d", "10-brain-shims.conf")
+	if os.exists(envd) {
+		say(cli, "remove %s", envd)
+		if !cli.dry {
+			os.remove(envd)
+		}
+	}
+	shims := path.join(cli.conf_dir, "shims")
+	if os.is_dir(shims) {
+		say(cli, "remove %s", shims)
+		if !cli.dry {
+			os.remove_all(shims)
+		}
+	}
+}
+
 cmd_uninstall :: proc(cli: ^Cli, args: []string) -> int {
 	cli.dry = len(args) > 0 && args[0] == "--dry-run"
 	out(cli, "removing this machine's bindings; the vault itself is untouched\n")
 	for rc in path_rc_files(cli) {
 		block_remove(cli, rc, "path")
-		block_remove(cli, rc, "guards")
 	}
+	remove_guards(cli)
 	block_remove(cli, path.join(cli.home, ".claude", "CLAUDE.md"), "claude")
 	bindir := pick_bindir(cli)
-	for f in ([6]string {
-			path.join(cli.home, ".config", "environment.d", "10-brain-shims.conf"),
+	for f in ([5]string {
 			cli.conf_vault,
 			path.join(cli.conf_dir, "tool"),
 			path.join(bindir, "brain"),
@@ -500,13 +506,11 @@ cmd_uninstall :: proc(cli: ^Cli, args: []string) -> int {
 			os.remove(f)
 		}
 	}
-	for d in ([2]string{path.join(cli.conf_dir, "hooks"), path.join(cli.conf_dir, "shims")}) {
-		if !os.is_dir(d) {
-			continue
-		}
-		say(cli, "remove %s", d)
+	hooks := path.join(cli.conf_dir, "hooks")
+	if os.is_dir(hooks) {
+		say(cli, "remove %s", hooks)
 		if !cli.dry {
-			os.remove_all(d)
+			os.remove_all(hooks)
 		}
 	}
 	note(cli, "left alone: ~/.agents/AGENTS.md, the index in %s, and the vault", cli.state)

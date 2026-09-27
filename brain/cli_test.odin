@@ -106,7 +106,7 @@ locate_prints_the_vault_and_the_tool :: proc(t: ^testing.T) {
 	testing.expect_value(t, strings.trim_space(o), f.vault)
 	o, _, code = exec(f.cli, "locate", "--tool")
 	testing.expect_value(t, code, 0)
-	testing.expect(t, os.is_file(path.join(strings.trim_space(o), "bin", "synonyms.tsv")), "--tool names the checkout")
+	testing.expect(t, os.is_file(path.join(strings.trim_space(o), "bin", "hooks", "pre-commit")), "--tool names the checkout")
 }
 
 @(test)
@@ -124,6 +124,26 @@ find_ranks_a_handle_and_reaches_a_document :: proc(t: ^testing.T) {
 	o, _, code = exec(f.cli, "find", "zzzznope")
 	testing.expect_value(t, code, 1)
 	testing.expect(t, strings.has_prefix(o, "no hits for: zzzznope"), "a miss says so")
+}
+
+// The vault's AI/synonyms.tsv is the query vocabulary: a term in it expands
+// to its rows, and a vault without the file simply has no expansion.
+@(test)
+find_expands_terms_from_the_vaults_synonyms :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "find", "fulltext")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "**sqlite**"), "fulltext expands to sqlite through the fixture's synonyms")
+	// A removed file leaves nothing to be newer than the index, so this
+	// resyncs by hand; an edited file re-indexes on its own.
+	testing.expect_value(t, os.remove(path.join(f.vault, SYNONYMS_FILE)), nil)
+	_, _, code = exec(f.cli, "sync")
+	testing.expect_value(t, code, 0)
+	_, _, code = exec(f.cli, "find", "fulltext")
+	testing.expect_value(t, code, 1)
+	testing.expect_value(t, count_int(t, f, "select count(*) from synonyms"), 0)
 }
 
 @(test)

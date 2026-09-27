@@ -4,8 +4,8 @@ tool and the vault live, dispatches a subcommand, and collects its output.
 
 Two roots, and they are not the same thing:
 
-	TOOL   the checkout of this repository: the CLI, its hooks, shims and
-	       synonyms. Public, distributable, carries no notes.
+	TOOL   the checkout of this repository: the CLI and its hooks. Public,
+	       distributable, carries no notes.
 	VAULT  the markdown someone keeps. Private, theirs, committed separately.
 
 Every subcommand writes to Cli.out and Cli.err rather than the process's
@@ -96,7 +96,7 @@ getenv :: proc(cli: ^Cli, key: string, def := "") -> string {
 // Where the tool is, in order of authority: BRAIN_TOOL in the environment,
 // the path `brain install` recorded, the checkout baked in at build time, and
 // finally the binary's own directory, walking up until one holds
-// bin/synonyms.tsv, which a checkout has and nothing else does.
+// bin/hooks/pre-commit, which a checkout has and nothing else does.
 find_tool :: proc(cli: ^Cli) -> string {
 	if t := getenv(cli, "BRAIN_TOOL"); t != "" {
 		return clean(t)
@@ -113,7 +113,7 @@ find_tool :: proc(cli: ^Cli) -> string {
 	}
 	d := clean(exe)
 	for {
-		if os.is_file(path.join(d, "bin", "synonyms.tsv")) {
+		if os.is_file(path.join(d, "bin", "hooks", "pre-commit")) {
 			return d
 		}
 		up := filepath.dir(d)
@@ -222,7 +222,7 @@ This CLI and the notes it searches are separate repositories. The vault is
 named once, by 'brain install <path>', and recorded in ~/.config/brain/vault.
 
 Zero-hit queries are recorded so the synonym table fills from real misses
-rather than guesswork; edit bin/synonyms.tsv and run 'brain sync'.
+rather than guesswork; add a row to the vault's AI/synonyms.tsv and run 'brain sync'.
 `
 
 // The bootstrap answer: an agent that has `brain` on PATH can always find the

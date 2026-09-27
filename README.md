@@ -117,6 +117,13 @@ is a backlog item only while it still misses: `brain log` re-runs each one and
 sets aside those a later edit answered. `brain doctor` uses the same log to name
 bullets returned often enough that a gate or a project file should carry them.
 
+The vault's vocabulary is `AI/synonyms.tsv`: tab-separated `term` and
+`expansion` rows under a header, one expansion per row. `find` widens each
+query term with its rows, so `systemd` can also match a bullet that says
+`user unit`. The file is reloaded whole on every `sync`; the misses `brain
+log` lists are the backlog for editing it. A vault without the file has no
+expansion.
+
 `testdata/vault` is a fixture of exactly this shape; `just test` runs the whole
 suite against a copy of it, so the tests pass on a machine with no notes at all.
 
@@ -129,16 +136,14 @@ suite against a copy of it, so the tests pass on a machine with no notes at all.
 | `bin/hooks/pre-commit` | runs `brain lint --staged` and `brain secrets --staged`; hard failures block the commit |
 | `bin/hooks/commit-msg` | delegates to the global hook, which a repo-local `core.hooksPath` would otherwise shadow |
 | `bin/hooks/post-commit` | resyncs the index after every commit |
-| `bin/shims/` | PATH shims that refuse commands the vault records as traps |
-| `bin/synonyms.tsv` | query expansion; the vocabulary ships with the CLI |
 | `.gitleaks.toml` | the default ruleset `brain secrets` applies |
 | `testdata/` | the fixture vault and transcripts the test suite runs against |
 
-The hooks, shims, synonyms and gitleaks ruleset are compiled into the binary.
-`brain install` writes the hooks and shims under `~/.config/brain/` with the
-binary's own path inside them, so a release binary needs no checkout and a
-hook runs whatever PATH git was started with. Edit the files here; a rebuild
-picks them up.
+The hooks and the gitleaks ruleset are compiled into the binary. `brain
+install` writes the hooks under `~/.config/brain/hooks` with the binary's own
+path inside them, so a release binary needs no checkout and a hook runs
+whatever PATH git was started with. Edit the files here; a rebuild picks them
+up.
 
 ## Requirements
 

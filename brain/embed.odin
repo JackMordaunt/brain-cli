@@ -5,15 +5,15 @@ import "core:strings"
 
 import "jm:path"
 
-// The data files the tool ships are compiled in, so a release binary needs
-// no checkout beside it. The files under bin/ and the gitleaks ruleset stay
-// the source of truth; a rebuild picks up an edit.
+// The files the tool ships are compiled in, so a release binary needs no
+// checkout beside it. The hooks under bin/ and the gitleaks ruleset stay
+// the source of truth; a rebuild picks up an edit. Vocabulary is not the
+// tool's: synonyms come from the vault.
 
-SYNONYMS_TSV :: #load("../bin/synonyms.tsv", string)
 GITLEAKS_TOML :: #load("../.gitleaks.toml", string)
 
-// Embedded is one file install writes out: hooks and shims are executables
-// git and the shell run, so they have to exist on disk.
+// Embedded is one file install writes out: hooks are executables git runs,
+// so they have to exist on disk.
 Embedded :: struct {
 	name, body: string,
 }
@@ -23,8 +23,6 @@ HOOKS :: [3]Embedded {
 	{"commit-msg", #load("../bin/hooks/commit-msg", string)},
 	{"post-commit", #load("../bin/hooks/post-commit", string)},
 }
-
-SHIMS :: [1]Embedded{{"omarchy-refresh-shell", #load("../bin/shims/omarchy-refresh-shell", string)}}
 
 // write_executables writes files into dir with the execute bit, replacing
 // the marker `installed=""` in each with the binary's own path so a hook

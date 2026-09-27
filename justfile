@@ -40,13 +40,13 @@ check:
     done
 
 # The package's tests, which run the built binary through the hooks and an
-# install into a throwaway home, then a syntax check of the hooks and shims.
+# install into a throwaway home, then a syntax check of the hooks.
 # One thread: tests that spawn git deadlock in parallel on Windows, where a
 # child inherits another child's pipe and its parent never reads EOF.
 test: build test-installer
     mkdir -p build/test
     {{odin}} test brain {{san}} {{flags}} -define:ODIN_TEST_THREADS=1 -out:build/test/brain{{exe}}
-    @for f in bin/hooks/* bin/shims/*; do bash -n "$f" && echo "ok $f"; done
+    @for f in bin/hooks/*; do bash -n "$f" && echo "ok $f"; done
 
 # install.cmd against a fake release on disk: the release binary under the
 # name CI would publish, a sha256sums.txt beside it, served over file://.

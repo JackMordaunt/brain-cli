@@ -69,6 +69,10 @@ newer_md_than :: proc(vault, db: string) -> bool {
 			return true
 		}
 	}
+	// The vocabulary is indexed too, so an edited synonyms file re-indexes.
+	if t, terr := os.modification_time_by_path(path.join(vault, SYNONYMS_FILE)); terr == nil && time.diff(db_time, t) > 0 {
+		return true
+	}
 	return false
 }
 
@@ -78,6 +82,9 @@ cmd_sync :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	return 0
 }
+
+// The vault's query vocabulary, relative to the vault root.
+SYNONYMS_FILE :: "AI/synonyms.tsv"
 
 INDEX_SCHEMA :: `
 create table bullets(
@@ -190,15 +197,16 @@ build_index :: proc(cli: ^Cli, db: sqlite3.Db, files: []string) -> string {
 			return e
 		}
 	}
-	// Synonyms ship with the tool, so the vocabulary travels with the CLI
-	// rather than with one person's notes.
-	{
+	// Synonyms are the vault's vocabulary, kept beside the notes they
+	// describe: a tab-separated `term expansion` file with a header row,
+	// reloaded whole on every sync. A vault without one has no expansion.
+	if tsv, err := os.read_entire_file_from_path(path.join(cli.vault, SYNONYMS_FILE), context.allocator); err == nil {
 		ins_syn, e5 := sqlite3.prepare(db, "insert into synonyms(term,expansion) values(?,?)")
 		if e5 != nil {
 			return sql_err(e5)
 		}
 		defer sqlite3.finish(&ins_syn)
-		rest := SYNONYMS_TSV
+		rest := string(tsv)
 		n := 0
 		for line in strings.split_lines_iterator(&rest) {
 			n += 1
