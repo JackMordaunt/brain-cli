@@ -3,7 +3,7 @@
 #
 #   just build     debug binary with the debug allocator and ASan -> build/debug
 #   just release   optimised binary                                -> build/release
-#   just test      the package's tests plus the shell suite against bin/brain
+#   just test      the package's tests against the fixture vault
 #   just check     type-check for linux, darwin and windows, debug and release
 #   just install   bind this machine to a vault
 #   just clean     remove build/ and the index
@@ -39,14 +39,14 @@ check:
       {{odin}} check . {{flags}} -debug -target:$t || exit 1; \
     done
 
-# The package's own tests, then a syntax check of the shell suite that still
-# drives bin/brain. One thread: tests that spawn git deadlock in parallel on
-# Windows, where a child inherits another child's pipe and its parent never
-# reads EOF.
+# The package's tests, which run the built binary through the hooks and an
+# install into a throwaway home, then a syntax check of the hooks and shims.
+# One thread: tests that spawn git deadlock in parallel on Windows, where a
+# child inherits another child's pipe and its parent never reads EOF.
 test: build
     mkdir -p build/test
     {{odin}} test brain {{san}} {{flags}} -define:ODIN_TEST_THREADS=1 -out:build/test/brain{{exe}}
-    @for f in bin/brain bin/hooks/* bin/shims/*; do bash -n "$f" && echo "ok $f"; done
+    @for f in bin/hooks/* bin/shims/*; do bash -n "$f" && echo "ok $f"; done
 
 # Put the CLI on PATH and bind this machine to a vault.
 install VAULT: release
