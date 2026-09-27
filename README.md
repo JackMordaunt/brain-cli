@@ -18,6 +18,19 @@ brain install ~/path/to/your/vault
 That records the vault in `~/.config/brain/vault`, puts `brain` on PATH,
 points the vault's git hooks at this checkout, and builds the index.
 
+Without a checkout, `install.cmd` fetches the released binary for the machine
+it runs on, checks its sha256, and puts it in `~/.local/bin`. The one file is
+both a shell script and a batch file, so the command is the same everywhere
+once it is on disk:
+
+```
+sh install.cmd ~/path/to/your/vault      # Linux, macOS, Git Bash
+install.cmd C:\path\to\your\vault        # cmd or PowerShell
+```
+
+`BRAIN_VERSION` pins a release tag and `BRAIN_BINDIR` picks the directory.
+Releases are built by `.github/workflows/release.yml` on a `v*` tag.
+
 A single checkout holding both still works: if the checkout has an `AI/` in
 it, that is the vault too.
 
