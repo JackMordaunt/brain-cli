@@ -61,12 +61,16 @@ jobs:
       - name: sqlite archive (windows)
         if: runner.os == 'Windows'
         shell: bash
+        # Git Bash rewrites a /flag into C:/Program Files/Git/flag before
+        # cl sees it, hence the dash flags and no path conversion at all.
+        env:
+          MSYS_NO_PATHCONV: 1
         run: |
           defines=$(sed -n '/^sqlite_defines :=/,/[^\\]$/p' jm/justfile | grep -o '"[^"]*"' | tr -d '"' | tr -d '\n')
           echo "defines: $defines"
           cd jm/sqlite3 && mkdir -p lib
-          cl /nologo /O2 /c vendor/sqlite3.c /Folib/sqlite3.obj $defines
-          lib /nologo /OUT:lib/sqlite3.lib lib/sqlite3.obj
+          cl -nologo -O2 -c vendor/sqlite3.c -Folib/sqlite3.obj $defines
+          lib -nologo -OUT:lib/sqlite3.lib lib/sqlite3.obj
 
       - name: build
         shell: bash
