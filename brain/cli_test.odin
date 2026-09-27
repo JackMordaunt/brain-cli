@@ -196,8 +196,8 @@ version_and_update_on_a_development_build :: proc(t: ^testing.T) {
 	_, e, code = exec(f.cli, "update")
 	testing.expect_value(t, code, 1)
 	testing.expect(t, strings.contains(e, "development build"), e)
-	key, ok := selfupdate.key_from_hex(PUBLIC_KEY)
-	testing.expect(t, ok && len(key) == 32, "the embedded public key decodes")
+	key: [32]byte
+	testing.expect(t, selfupdate.key_from_hex(PUBLIC_KEY, key[:]), "the embedded public key decodes")
 }
 
 @(test)

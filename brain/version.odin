@@ -37,8 +37,12 @@ cmd_version :: proc(cli: ^Cli, args: []string) -> int {
 	return 0
 }
 
+// The decoded public key; selfupdate keeps a slice of it.
+public_key: [32]byte
+
 update_config :: proc(cli: ^Cli, mode: selfupdate.Mode) -> selfupdate.Config {
-	key, _ := selfupdate.key_from_hex(PUBLIC_KEY)
+	selfupdate.key_from_hex(PUBLIC_KEY, public_key[:])
+	key := public_key[:]
 	return selfupdate.Config {
 		base_url = getenv(cli, "BRAIN_RELEASE_BASE", RELEASE_BASE),
 		version = VERSION,
@@ -58,13 +62,11 @@ cmd_update :: proc(cli: ^Cli, args: []string) -> int {
 	case .Up_To_Date:
 		outf(cli, "brain %s is up to date\n", VERSION)
 	case .Applied:
-		outf(cli, "updated to %s\n", r.version)
+		outf(cli, "updated to %s\n", selfupdate.version(&r))
 	case .Update_Available, .Skipped:
-		outf(cli, "%s\n", r.message)
-	case .Refused:
-		return fail(cli, r.message)
-	case .Failed:
-		return fail(cli, r.message)
+		outf(cli, "%s\n", selfupdate.message(&r))
+	case .Refused, .Failed:
+		return fail(cli, selfupdate.message(&r))
 	}
 	return 0
 }
@@ -78,6 +80,6 @@ notify_update :: proc(cli: ^Cli) {
 	}
 	r := selfupdate.run(update_config(cli, .Notify))
 	if r.outcome == .Update_Available {
-		errf(cli, "brain: %s (run `brain update`)\n", r.message)
+		errf(cli, "brain: %s (run `brain update`)\n", selfupdate.message(&r))
 	}
 }
