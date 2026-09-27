@@ -1,10 +1,11 @@
-# Builds the static binary for each platform and, on a version tag, publishes
-# them with a sha256sums.txt, which is what install.cmd downloads. A manual
-# run builds and smoke-tests every target without publishing.
+# Builds the static binary for each platform on every push and, on a version
+# tag, publishes them with a sha256sums.txt, which is what install.cmd
+# downloads.
 name: release
 
 on:
   push:
+    branches: ["**"]
     tags: ["v*"]
   workflow_dispatch:
 
