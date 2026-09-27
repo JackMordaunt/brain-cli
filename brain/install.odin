@@ -459,7 +459,7 @@ link_or_copy :: proc(link, target: string) -> bool {
 	if os.exists(link) || is_link(link) {
 		os.remove(link)
 	}
-	if os.symlink(target, link) != nil {
+	if !symlink(target, link) {
 		return false
 	}
 	return is_link(link)
