@@ -1,0 +1,61 @@
+# Builds the static binary for each platform on a version tag and publishes
+# them with a sha256sums.txt, which is what install.cmd downloads.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: brain-linux-amd64
+          - os: macos-latest
+            asset: brain-darwin-arm64
+          - os: windows-latest
+            asset: brain-windows-amd64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: JackMordaunt/jm
+          path: jm
+      - uses: laytanl/setup-odin@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          release: dev-2026-09
+      - uses: extractions/setup-just@v2
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      # The jm sqlite3 package links an archive built from the vendored
+      # amalgamation; its own recipe builds it.
+      - run: just sqlite
+        working-directory: jm
+      - run: just release
+        env:
+          JM: ${{ github.workspace }}/jm
+      - run: cp build/release/brain${{ runner.os == 'Windows' && '.exe' || '' }} ${{ matrix.asset }}
+        shell: bash
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - run: cd assets && sha256sum brain-* > sha256sums.txt && cat sha256sums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
