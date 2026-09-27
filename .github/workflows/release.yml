@@ -60,6 +60,7 @@ jobs:
       - name: curl link deps (linux)
         if: runner.os == 'Linux'
         run: |
+          sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
           mkdir -p "$RUNNER_TEMP/stubs"
           for l in mbedtls mbedx509 mbedcrypto; do ar rcs "$RUNNER_TEMP/stubs/lib$l.a"; done
