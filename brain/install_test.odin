@@ -79,6 +79,9 @@ install_binds_a_home_and_the_installed_cli_names_the_checkout :: proc(t: ^testin
 	testing.expect(t, strings.contains(claude_md, "brain:claude >>>"), claude_md)
 	bashrc, _ := path.read(path.join(f.home, ".bashrc"))
 	testing.expect(t, strings.contains(bashrc, "brain:path >>>") && strings.contains(bashrc, "brain:guards >>>"), bashrc)
+	// Git Bash splits PATH on the colon, so a C:\ path in .bashrc is broken.
+	testing.expect(t, !strings.contains(bashrc, ":\\"), bashrc)
+	testing.expect(t, strings.contains(bashrc, "bin/shims:$PATH"), bashrc)
 
 	installed := path.join(f.home, ".local", "bin", strings.concatenate({"brain", EXE}))
 	testing.expect(t, os.is_file(installed) || is_link(installed), installed)

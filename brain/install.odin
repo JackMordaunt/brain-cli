@@ -166,6 +166,21 @@ rc_block :: proc(cli: ^Cli, rc, body, tag: string) {
 	block_apply(cli, rc, tag, "#", "", body)
 }
 
+// posix_path is the form a PATH entry takes in a file Git Bash reads: on
+// Windows C:\a\b becomes /c/a/b, since bash splits PATH on the colon.
+posix_path :: proc(p: string) -> string {
+	when ODIN_OS == .Windows {
+		fwd, _ := strings.replace_all(p, "\\", "/")
+		if len(fwd) >= 2 && fwd[1] == ':' && is_drive_letter(fwd[0]) {
+			drive := fwd[0] + ('a' - 'A') if fwd[0] <= 'Z' else fwd[0]
+			return fmt.aprintf("/%c%s", drive, fwd[2:])
+		}
+		return fwd
+	} else {
+		return p
+	}
+}
+
 on_path :: proc(cli: ^Cli, dir: string) -> bool {
 	sep := ";" when ODIN_OS == .Windows else ":"
 	for d in strings.split(getenv(cli, "PATH"), sep) {
@@ -278,9 +293,9 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 		note(cli, "%s is already on PATH", bindir)
 	} else {
 		for rc in path_rc_files(cli) {
-			rc_block(cli, rc, fmt.aprintf("export PATH=\"%s:$PATH\"", bindir), "path")
+			rc_block(cli, rc, fmt.aprintf("export PATH=\"%s:$PATH\"", posix_path(bindir)), "path")
 		}
-		note(cli, "open a new shell, or: export PATH=\"%s:$PATH\"", bindir)
+		note(cli, "open a new shell, or: export PATH=\"%s:$PATH\"", posix_path(bindir))
 		if kind == "windows" {
 			note(cli, "for PowerShell and cmd, add %s to the user PATH", bindir)
 		}
@@ -313,7 +328,7 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 		}
 	}
 	for rc in path_rc_files(cli) {
-		rc_block(cli, rc, fmt.aprintf("export PATH=\"%s:$PATH\"", shims), "guards")
+		rc_block(cli, rc, fmt.aprintf("export PATH=\"%s:$PATH\"", posix_path(shims)), "guards")
 	}
 	if kind == "linux" {
 		envd := path.join(cli.home, ".config", "environment.d", "10-brain-shims.conf")
