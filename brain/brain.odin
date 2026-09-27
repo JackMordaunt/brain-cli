@@ -179,6 +179,10 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 		return cmd_secrets(cli, rest)
 	case "install":
 		return cmd_install(cli, rest)
+	case "update":
+		return cmd_update(cli, rest)
+	case "version", "--version":
+		return cmd_version(cli, rest)
 	case "uninstall":
 		return cmd_uninstall(cli, rest)
 	case "", "-h", "--help", "help":
@@ -211,6 +215,8 @@ USAGE :: `brain — query and lint the vault. Markdown is canonical; the index i
   brain secrets [--staged|--history]  scan for credentials (gitleaks, with a fallback)
   brain install [<vault>] [--dry-run]  bind this machine to a vault
   brain uninstall [--dry-run]  undo those bindings; the vault is untouched
+  brain update            replace this binary with the latest signed release
+  brain version           this build and its release asset name
 
 This CLI and the notes it searches are separate repositories. The vault is
 named once, by 'brain install <path>', and recorded in ~/.config/brain/vault.

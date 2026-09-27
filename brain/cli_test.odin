@@ -5,6 +5,7 @@ import "core:strings"
 import "core:testing"
 
 import "jm:path"
+import "jm:selfupdate"
 import "jm:sqlite3"
 
 // Fixture is a copy of testdata/vault in a fresh temp directory with its own
@@ -178,6 +179,25 @@ log_sets_an_answered_miss_aside :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(o, "missed then answered"), "the answered miss is reported")
 	testing.expect(t, strings.contains(o, "zzzznope"), "and named")
 	testing.expect(t, !strings.contains(o, "\n│ zzzznope"), "but is out of the backlog table")
+}
+
+// A local build has no version, so it reports "dev" and refuses to update
+// itself; only a release build carries a tag and an update path.
+@(test)
+version_and_update_on_a_development_build :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "version")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "brain dev ("), o)
+	testing.expect(t, strings.contains(o, ASSET), o)
+	e: string
+	_, e, code = exec(f.cli, "update")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "development build"), e)
+	key, ok := selfupdate.key_from_hex(PUBLIC_KEY)
+	testing.expect(t, ok && len(key) == 32, "the embedded public key decodes")
 }
 
 @(test)

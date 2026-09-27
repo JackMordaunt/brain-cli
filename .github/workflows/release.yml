@@ -36,9 +36,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      # jm:selfupdate lives on jm's `selfupdate` branch until it is merged;
+      # drop the ref then.
       - uses: actions/checkout@v4
         with:
           repository: JackMordaunt/jm
+          ref: selfupdate
           path: jm
       - uses: laytan/setup-odin@v2.12.2
         with:
@@ -72,16 +75,21 @@ jobs:
           cl -nologo -O2 -c vendor/sqlite3.c -Folib/sqlite3.obj $defines
           lib -nologo -OUT:lib/sqlite3.lib lib/sqlite3.obj
 
+      # A tag build carries its version; any other build is "dev" and will
+      # not update itself.
       - name: build
         shell: bash
         run: |
           mkdir -p build/release
-          odin build . -o:speed -vet -strict-style -collection:jm="$PWD/jm" \
+          version=""
+          case "$GITHUB_REF" in refs/tags/*) version="-define:VERSION=$GITHUB_REF_NAME" ;; esac
+          odin build . -o:speed -vet -strict-style -collection:jm="$PWD/jm" $version \
             -target:${{ matrix.target }} -out:build/release/${{ matrix.asset }}
       - name: smoke test
         if: matrix.target != 'darwin_amd64'
         shell: bash
         run: |
+          build/release/${{ matrix.asset }} version
           build/release/${{ matrix.asset }} help | head -1
           BRAIN_VAULT=testdata/vault BRAIN_STATE="$RUNNER_TEMP/state" build/release/${{ matrix.asset }} find sqlite
       - uses: actions/upload-artifact@v4
@@ -102,6 +110,17 @@ jobs:
           path: assets
           merge-multiple: true
       - run: cd assets && sha256sum brain-* > sha256sums.txt && cat sha256sums.txt
+      # The checksum file is signed with the key whose public half the
+      # binary embeds; selfupdate trusts nothing that does not verify.
+      - name: sign
+        env:
+          KEY: ${{ secrets.BRAIN_SIGNING_KEY }}
+        run: |
+          printf '%s\n' "$KEY" > key.pem
+          openssl pkeyutl -sign -rawin -in assets/sha256sums.txt -inkey key.pem -out assets/sha256sums.txt.sig
+          openssl pkeyutl -verify -rawin -in assets/sha256sums.txt -inkey key.pem -sigfile assets/sha256sums.txt.sig
+          rm -f key.pem
+          echo "$GITHUB_REF_NAME" > assets/version.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: assets/*
