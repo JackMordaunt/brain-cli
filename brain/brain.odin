@@ -171,6 +171,8 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 		return cmd_log(cli, rest)
 	case "doctor":
 		return cmd_doctor(cli, rest)
+	case "lint":
+		return cmd_lint(cli, rest)
 	case "", "-h", "--help", "help":
 		out(cli, USAGE)
 		return 0
