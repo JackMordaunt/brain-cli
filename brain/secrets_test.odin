@@ -8,8 +8,10 @@ import "jm:sh"
 
 // The fixtures are assembled at run time: a literal that looks like a key,
 // even a made-up one, is what push protection and gitleaks exist to catch.
+// The key's body varies: gitleaks' stock aws-access-token rule (8.30.1)
+// sets entropy = 3, so a run of one letter is never a finding.
 fake_aws_key :: proc() -> string {
-	return strings.concatenate({"AKIA", strings.repeat("Q", 16)})
+	return strings.concatenate({"AKIA", "Q2W3E4R5", "T6Y7U3I4"})
 }
 
 fake_github_token :: proc() -> string {

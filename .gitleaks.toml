@@ -24,18 +24,26 @@ description = "a credential assigned a literal value in prose"
 regex = '''(?i)\b(pass(word|phrase)?|secret|token|api[_-]?key|access[_-]?key)\b\s*[:=]\s*["']?[A-Za-z0-9/+_.-]{16,}["']?'''
 tags = ["vault", "prose"]
 
-[allowlist]
-description = "placeholders, identifier names, and the gate's own test fixture"
+[[allowlists]]
+description = "placeholders and the gate's own test fixture"
 regexTarget = "line"
 regexes = [
   # Shell or template placeholders standing in for the real value.
   '''\$\{?[A-Z_][A-Z0-9_]*\}?''',
   '''<[A-Za-z][^>\n]{0,40}>''',
   '''\b(REDACTED|CHANGEME|EXAMPLE|xxx+|\*{3,}|\.{3})\b''',
-  # A bare SCREAMING_SNAKE identifier is the *name* of a credential, which a
-  # vault records deliberately, not its value.
-  '''(?i)\b[A-Z][A-Z0-9]*(_[A-Z0-9]+)+\b(?!\s*[:=]\s*\S)''',
 ]
 paths = [
   '''\.gitleaks\.toml$''',
+]
+
+# A SCREAMING_SNAKE identifier in value position is the *name* of a
+# credential, which a vault records deliberately, not its value. Judged on
+# the match, not the line: gitleaks runs on RE2, which has no lookahead, so
+# "an identifier not followed by an assignment" cannot be said of the line.
+[[allowlists]]
+description = "a credential's name where its value would go"
+regexTarget = "match"
+regexes = [
+  '''[:=]\s*["']?[A-Z][A-Z0-9]*(_[A-Z0-9]+)+["']?$''',
 ]
