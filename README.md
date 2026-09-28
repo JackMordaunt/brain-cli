@@ -12,21 +12,33 @@ This repository is the tool. Your notes are a separate repository — private,
 committed on your own schedule, never mixed with the CLI's history.
 
 ```
-brain install ~/path/to/your/vault
+brain install [~/path/to/your/vault]
 ```
 
 That records the vault in `~/.config/brain/vault`, puts `brain` on PATH,
-points the vault's git hooks at this checkout, and builds the index.
+points the vault's git hooks at this checkout, and builds the index. The
+vault is the path given, else `BRAIN_VAULT`, else the one already recorded,
+else `~/Documents/Brain`, which is created as a new git repository with a
+starter `AI/` if it does not exist. Nothing is searched for. Run
+`brain install <path>` again to move to another vault.
 
-Without a checkout, `install.cmd` fetches the released binary for the machine
-it runs on, checks its sha256, and puts it in `~/.local/bin`. The one file is
-both a shell script and a batch file, so the command is the same everywhere
-once it is on disk:
+Without a checkout, an installer fetches the released binary for the machine
+it runs on, checks its sha256, and puts it in `~/.local/bin`. On Linux and
+macOS:
 
 ```
-sh install.cmd ~/path/to/your/vault      # Linux, macOS, Git Bash
-install.cmd C:\path\to\your\vault        # cmd or PowerShell
+curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
 ```
+
+On Windows, in PowerShell:
+
+```
+irm https://mordaunt.dev/code/brain-cli/install.ps1 | iex
+```
+
+Both end by running `brain install`, so a machine with no vault gets one at
+`~/Documents/Brain`. To bind an existing vault instead, set `BRAIN_VAULT`, or
+pass the path to the shell installer with `sh -s -- <vault>`.
 
 `BRAIN_VERSION` pins a release tag and `BRAIN_BINDIR` picks the directory.
 Releases are built by `.github/workflows/release.yml` on a `v*` tag.
@@ -137,6 +149,7 @@ suite against a copy of it, so the tests pass on a machine with no notes at all.
 | `bin/hooks/commit-msg` | delegates to the global hook, which a repo-local `core.hooksPath` would otherwise shadow |
 | `bin/hooks/post-commit` | resyncs the index after every commit |
 | `.gitleaks.toml` | the default ruleset `brain secrets` applies |
+| `starter/` | the vault `brain install` creates when none exists |
 | `testdata/` | the fixture vault and transcripts the test suite runs against |
 
 The hooks and the gitleaks ruleset are compiled into the binary. `brain

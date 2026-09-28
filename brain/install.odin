@@ -240,9 +240,62 @@ record :: proc(cli: ^Cli, file, value: string) {
 	path.write(file, strings.concatenate({value, "\n"}))
 }
 
+// canonical_vault is where a vault lives when nobody has said otherwise.
+canonical_vault :: proc(cli: ^Cli) -> string {
+	return path.join(cli.home, "Documents", "Brain")
+}
+
+// install_vault is the vault install binds, in order of authority: the path
+// given, BRAIN_VAULT, the vault an earlier install recorded, and the
+// canonical path. Nothing is searched for. created is true when the
+// canonical path does not exist yet and install has to make it.
+install_vault :: proc(cli: ^Cli, given: string) -> (vault: string, created: bool, err: string) {
+	named := given
+	if named == "" {
+		named = getenv(cli, "BRAIN_VAULT")
+	}
+	if named != "" {
+		if !os.is_dir(named) {
+			return "", false, fmt.aprintf("install: no such directory: %s", named)
+		}
+		abs, aerr := path.abs(named)
+		return aerr == nil ? abs : clean(named), false, ""
+	}
+	if v := recorded_path(cli.conf_vault); v != "" && os.is_dir(v) {
+		return clean(v), false, ""
+	}
+	v := canonical_vault(cli)
+	if os.exists(v) && !os.is_dir(v) {
+		return "", false, fmt.aprintf("install: %s exists and is not a directory", v)
+	}
+	return v, !os.exists(v), ""
+}
+
+// create_vault writes the starter vault and makes it a git repository, since
+// the hooks install binds are git hooks.
+create_vault :: proc(cli: ^Cli, vault: string) -> string {
+	for f in STARTER {
+		file := path.join(vault, f.name)
+		if err := path.mkdirs(path.dir(file)); err != nil {
+			return fmt.aprintf("install: cannot create %s: %v", vault, err)
+		}
+		if err := path.write(file, f.body); err != nil {
+			return fmt.aprintf("install: cannot write %s: %v", file, err)
+		}
+	}
+	if _, found := sh.which("git"); found {
+		if r := sh.exec({"git", "init", "-q"}, {dir = vault}); !r.ok {
+			note(cli, "git init failed in %s: %s", vault, sh.error(r))
+		}
+	} else {
+		note(cli, "git missing — run 'git init' in %s so its hooks can run", vault)
+	}
+	return ""
+}
+
 cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 	cli.dry = false
-	vault := cli.vault
+	given := ""
 	for arg in args {
 		switch {
 		case arg == "--dry-run":
@@ -251,26 +304,30 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 			return fail(cli, fmt.aprintf("install: unknown flag %s", arg))
 		case arg == "":
 		case:
-			if !os.is_dir(arg) {
-				return fail(cli, fmt.aprintf("install: no such directory: %s", arg))
-			}
-			abs, err := path.abs(arg)
-			vault = err == nil ? abs : clean(arg)
+			given = arg
 		}
 	}
-	if vault == "" {
-		return fail(cli, "install: name the vault — brain install <path-to-vault>")
+	vault, created, verr := install_vault(cli, given)
+	if verr != "" {
+		return fail(cli, verr)
 	}
 	cli.vault = vault
-	if !os.is_dir(path.join(vault, "AI")) {
-		note(cli, "warning: %s has no AI/ — is that the vault?", vault)
-	}
 	kind := os_kind()
 	hooks := path.join(cli.conf_dir, "hooks")
 	bindir := pick_bindir(cli)
 
 	outf(cli, "tool:  %s\n", cli.tool)
 	outf(cli, "vault: %s   (%s)\n", vault, kind)
+	if created {
+		if !cli.dry {
+			if err := create_vault(cli, vault); err != "" {
+				return fail(cli, err)
+			}
+		}
+		say(cli, "created a new vault; 'brain install <path>' binds another one")
+	} else if !os.is_dir(path.join(vault, "AI")) {
+		note(cli, "warning: %s has no AI/ — is that the vault?", vault)
+	}
 	if !cli.dry {
 		path.mkdirs(cli.state)
 		record(cli, cli.conf_vault, vault)

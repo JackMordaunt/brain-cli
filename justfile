@@ -57,34 +57,52 @@ test: build test-installer
     {{odin}} test brain {{san}} {{flags}} -define:ODIN_TEST_THREADS=1 -out:build/test/brain{{exe}}
     @for f in bin/hooks/*; do bash -n "$f" && echo "ok $f"; done
 
-# install.cmd against a fake release on disk: the release binary under the
-# name CI would publish, a sha256sums.txt beside it, served over file://.
-# The sh half runs everywhere; on Windows the cmd half runs too, and both
-# must refuse an asset whose checksum no longer matches.
+# The installers against a fake release on disk: the release binary under
+# the names CI would publish, a sha256sums.txt beside them, served over
+# file://. Each ends in `brain install`, so all of it runs in a throwaway
+# home, where the canonical vault gets created. install.sh runs everywhere;
+# install.ps1 installs on Windows and, wherever a PowerShell is on PATH,
+# must refuse an asset whose checksum no longer matches. Off Windows its
+# .exe cannot run, and PowerShell would hand it to xdg-open.
 test-installer: release
     #!/usr/bin/env bash
     set -euo pipefail
     case "$(uname -s)" in Linux*) os=linux;; Darwin*) os=darwin;; *) os=windows;; esac
     case "$(uname -m)" in x86_64|amd64) arch=amd64;; *) arch=arm64;; esac
-    asset="brain-$os-$arch{{exe}}"
-    rel="$(mktemp -d)/release"; bin="$(mktemp -d)/bin"
-    trap 'rm -rf "$(dirname "$rel")" "$(dirname "$bin")"' EXIT
-    mkdir -p "$rel" && cp "build/release/brain{{exe}}" "$rel/$asset"
+    # The installers run before any binary exists, so they repeat the
+    # release base the binary owns; all three must agree.
+    base=$(sed -n 's/^RELEASE_BASE :: "\(.*\)"$/\1/p' brain/version.odin)
+    for f in install.sh install.ps1; do grep -qF "$base" "$f" || { echo "FAIL $f does not name $base"; exit 1; }; done
+    echo "ok the installers name the release base"
+    rel="$(mktemp -d)/release"; bin="$(mktemp -d)/bin"; home="$(mktemp -d)"
+    trap 'rm -rf "$(dirname "$rel")" "$(dirname "$bin")" "$home"' EXIT
+    export HOME="$home" USERPROFILE="$(cygpath -w "$home" 2>/dev/null || printf '%s' "$home")"
+    export XDG_CONFIG_HOME="$home/.config" XDG_STATE_HOME="$home/.state"
+    unset BRAIN_VAULT BRAIN_STATE BRAIN_TOOL GOBIN GOPATH
+    mkdir -p "$rel"
+    cp "build/release/brain{{exe}}" "$rel/brain-$os-$arch{{exe}}"
+    cp "build/release/brain{{exe}}" "$rel/brain-windows-amd64.exe"
     (cd "$rel" && { command -v sha256sum >/dev/null && sha256sum brain-* || shasum -a 256 brain-*; } > sha256sums.txt)
     p=$(cygpath -m "$rel" 2>/dev/null || printf '%s' "$rel")
     export BRAIN_RELEASE_BASE="file:///${p#/}"
-    BRAIN_BINDIR="$bin/sh" sh install.cmd >/dev/null
-    test "$("$bin/sh/brain{{exe}}" locate --tool)" = "$(build/release/brain{{exe}} locate --tool)" && echo "ok install.cmd (sh)"
-    if command -v cygpath >/dev/null 2>&1; then
-      MSYS_NO_PATHCONV=1 cmd /c "set BRAIN_BINDIR=$(cygpath -w "$bin")\cmd&& $(cygpath -w "$PWD")\install.cmd" >/dev/null
-      test "$("$bin/cmd/brain.exe" locate --tool)" = "$(build/release/brain.exe locate --tool)" && echo "ok install.cmd (cmd)"
+    w() { cygpath -w "$1" 2>/dev/null || printf '%s' "$1"; }
+    ps=$(command -v pwsh || command -v powershell || true)
+    ps1() { BRAIN_BINDIR="$(w "$1")" "$ps" -NoProfile -ExecutionPolicy Bypass -File "$(w "$PWD/install.ps1")"; }
+
+    BRAIN_BINDIR="$bin/sh" sh install.sh >/dev/null
+    test "$("$bin/sh/brain{{exe}}" locate --tool)" = "$(build/release/brain{{exe}} locate --tool)"
+    test "$("$bin/sh/brain{{exe}}" locate)" = "$home/Documents/Brain" && echo "ok install.sh"
+    if [ -n "$ps" ] && [ "$os" = windows ]; then
+      ps1 "$bin/ps" >/dev/null
+      cmp "$bin/ps/brain.exe" "build/release/brain{{exe}}" && echo "ok install.ps1"
     fi
-    printf x >> "$rel/$asset"
-    if BRAIN_BINDIR="$bin/t" sh install.cmd >/dev/null 2>&1; then echo "FAIL install.cmd accepted a bad checksum"; exit 1; fi
-    echo "ok install.cmd refuses a bad checksum (sh)"
-    if command -v cygpath >/dev/null 2>&1; then
-      if MSYS_NO_PATHCONV=1 cmd /c "set BRAIN_BINDIR=$(cygpath -w "$bin")\t2&& $(cygpath -w "$PWD")\install.cmd" >/dev/null 2>&1; then echo "FAIL install.cmd (cmd) accepted a bad checksum"; exit 1; fi
-      echo "ok install.cmd refuses a bad checksum (cmd)"
+
+    printf x >> "$rel/brain-$os-$arch{{exe}}"; printf x >> "$rel/brain-windows-amd64.exe"
+    if BRAIN_BINDIR="$bin/t" sh install.sh >/dev/null 2>&1; then echo "FAIL install.sh accepted a bad checksum"; exit 1; fi
+    echo "ok install.sh refuses a bad checksum"
+    if [ -n "$ps" ]; then
+      if ps1 "$bin/t2" >/dev/null 2>&1; then echo "FAIL install.ps1 accepted a bad checksum"; exit 1; fi
+      echo "ok install.ps1 refuses a bad checksum"
     fi
 
 # Put the CLI on PATH and bind this machine to a vault.

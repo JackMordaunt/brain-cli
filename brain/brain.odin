@@ -147,7 +147,7 @@ find_vault :: proc(cli: ^Cli) -> string {
 // need_vault fails when no vault is known or the recorded one is gone.
 need_vault :: proc(cli: ^Cli) -> string {
 	if cli.vault == "" {
-		return "no vault yet: run 'brain install <path-to-vault>', or set BRAIN_VAULT"
+		return "no vault yet: run 'brain install [<path-to-vault>]', or set BRAIN_VAULT"
 	}
 	if !os.is_dir(cli.vault) {
 		return fmt.aprintf("vault recorded but missing: %s", cli.vault)
@@ -218,8 +218,9 @@ USAGE :: `brain — query and lint the vault. Markdown is canonical; the index i
   brain update            replace this binary with the latest signed release
   brain version           this build and its release asset name
 
-This CLI and the notes it searches are separate repositories. The vault is
-named once, by 'brain install <path>', and recorded in ~/.config/brain/vault.
+This CLI and the notes it searches are separate repositories. 'brain install'
+binds the vault it is given, else BRAIN_VAULT, else the one already recorded
+in ~/.config/brain/vault, else ~/Documents/Brain, which it creates if absent.
 
 Zero-hit queries are recorded so the synonym table fills from real misses
 rather than guesswork; add a row to the vault's AI/synonyms.tsv and run 'brain sync'.

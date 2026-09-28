@@ -138,3 +138,57 @@ child_env :: proc(f: Fixture) -> []string {
 	append(&env, strings.concatenate({"BRAIN_STATE=", f.state}))
 	return env[:]
 }
+
+// With no vault named, install binds the recorded one, or creates the
+// canonical vault; it never searches. The starter vault passes lint and is a
+// git repository, and a second install keeps it rather than creating again.
+@(test)
+install_creates_the_canonical_vault_when_none_is_named :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	if _, found := sh.which("git"); !found {
+		return
+	}
+	f := fixture(t)
+	defer fixture_destroy(f)
+	f.cli.env["BRAIN_VAULT"] = ""
+	f.cli.env["GOPATH"] = ""
+	f.cli.env["GOBIN"] = ""
+	f.cli.env["PATH"] = ""
+	cwd, _ := os.get_working_directory(context.allocator)
+	f.cli.env["BRAIN_EXE"] = path.join(cwd, "build", "debug", strings.concatenate({"brain", EXE}))
+	canonical := path.join(f.home, "Documents", "Brain")
+
+	o, e, code := exec(f.cli, "install", "--dry-run")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, canonical) && strings.contains(o, "created a new vault"), o)
+	testing.expect(t, !os.exists(canonical), "a dry run creates nothing")
+
+	o, e, code = exec(f.cli, "install")
+	testing.expect_value(t, code, 0)
+	testing.expect_value(t, e, "")
+	testing.expect_value(t, recorded_path(f.cli.conf_vault), canonical)
+	for file in STARTER {
+		testing.expect(t, os.is_file(path.join(canonical, file.name)), file.name)
+	}
+	testing.expect(t, os.is_dir(path.join(canonical, ".git")), "the new vault is a git repository")
+	o, e, code = exec(f.cli, "lint")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "0 failure(s), 0 warning(s)"), o)
+
+	testing.expect_value(t, path.write(path.join(canonical, "AI", "MEMORY.md"), "# Memory\n\nmine\n"), nil)
+	o, _, code = exec(f.cli, "install")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, !strings.contains(o, "created a new vault"), o)
+	mem, _ := path.read(path.join(canonical, "AI", "MEMORY.md"))
+	testing.expect_value(t, mem, "# Memory\n\nmine\n")
+
+	// The recorded vault outranks the canonical one; a named one outranks both.
+	testing.expect_value(t, recorded_path(f.cli.conf_vault), canonical)
+	f.cli.env["BRAIN_VAULT"] = f.vault
+	o, _, code = exec(f.cli, "install", "--dry-run")
+	testing.expect(t, strings.contains(o, strings.concatenate({"vault: ", f.vault})), o)
+	f.cli.env["BRAIN_VAULT"] = path.join(f.root, "missing")
+	_, e, code = exec(f.cli, "install", "--dry-run")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "no such directory"), e)
+}

@@ -1,6 +1,6 @@
 # Builds the static binary for each platform on every push and, on a version
-# tag, publishes them with a sha256sums.txt, which is what install.cmd
-# downloads.
+# tag, publishes them with a sha256sums.txt, which is what install.sh and
+# install.ps1 download.
 name: release
 
 on:

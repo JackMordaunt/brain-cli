@@ -24,6 +24,16 @@ HOOKS :: [3]Embedded {
 	{"post-commit", #load("../bin/hooks/post-commit", string)},
 }
 
+// STARTER is the vault `brain install` creates at the canonical path when
+// no vault is named and none exists there yet.
+STARTER :: [5]Embedded {
+	{"AI/AGENTS.md", #load("../starter/AI/AGENTS.md", string)},
+	{"AI/MEMORY.md", #load("../starter/AI/MEMORY.md", string)},
+	{"AI/LEARNINGS.md", #load("../starter/AI/LEARNINGS.md", string)},
+	{"AI/TUNINGS.md", #load("../starter/AI/TUNINGS.md", string)},
+	{"AI/synonyms.tsv", #load("../starter/AI/synonyms.tsv", string)},
+}
+
 // write_executables writes files into dir with the execute bit, replacing
 // the marker `installed=""` in each with the binary's own path so a hook
 // runs it whatever PATH a non-interactive git has.
