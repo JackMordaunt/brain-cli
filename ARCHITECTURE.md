@@ -143,7 +143,9 @@ them up.
 | `starter/` | the vault `brain install` creates when none exists |
 | `testdata/` | the fixture vault and transcripts the test suite runs against |
 | `branding/` | the mark and hero lockup, light and dark, SVG and PNG; `just branding` regenerates them |
-| `tools/logo/` | the logo lab: the mark's geometry, and a hot-reloading window to work on it (`just logo`) |
+| `tools/logo/` | the logo lab: the mark's geometry, its SVG writer, and the grid of variations it was chosen from (`just logo`) |
+| `tools/desk/` | the desk prototype: the control room over a vault on jm:ui/material, against fixture data (`just desk`) |
+| `tools/host/` | the window both tools run in; `just hot DIR TITLE` rebuilds a child on save and the host respawns it |
 | `jm/` | the [jm collection](https://mordaunt.dev/code/jm), pinned as a submodule |
 
 `testdata/vault` is a fixture of exactly the vault's shape; `just test` runs
@@ -169,5 +171,7 @@ just test      the package's tests against the fixture vault
 just check     type-check for linux, darwin and windows
 just install   bind this machine to a vault
 just logo      open the logo lab
+just desk      open the desk prototype
 just branding  regenerate branding/
+just preview   render the docs to build/ and open them
 ```

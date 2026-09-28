@@ -8,6 +8,8 @@
 #   just check     type-check for linux, darwin and windows, debug and release
 #   just install   bind this machine to a vault
 #   just logo      open the logo lab, hot-reloading tools/logo as it is edited
+#   just desk      open the desk prototype, hot-reloading tools/desk
+#   just hot DIR TITLE  the loop under both: any jm:ui child in a window
 #   just branding  regenerate branding/ (SVG from tools/logo, PNG via rsvg-convert)
 #   just preview   render README.md and ARCHITECTURE.md to build/ and open them
 #   just clean     remove build/ and the index
@@ -116,35 +118,40 @@ test-installer: release
 install VAULT: release
     build/release/brain{{exe}} install {{VAULT}}
 
-# The logo lab: tools/logo/host owns the window; tools/logo draws the marks
-# and is rebuilt here every time one of its .odin files changes, into its
-# own timestamped binary under build/logo, and named in build/logo.watch,
-# which the host re-reads and respawns from (ui/sdl.run_host). The loop is
-# a shell one rather than jm's tools/hot-watch because that build omits the
-# C++ runtime Blend2D needs on Linux. GNU stat and date; Linux and macOS
-# with coreutils.
+# Hot reload for the windowed tools: tools/host owns the window and DIR is
+# the jm:ui child that draws into it. The child is rebuilt here every time
+# one of its .odin files changes, into its own timestamped binary under
+# build/hot, and named in build/<name>.watch, which the host re-reads and
+# respawns from (ui/sdl.run_host). The loop is a shell one rather than
+# jm's tools/hot-watch because that build omits the C++ runtime Blend2D
+# needs on Linux. GNU stat and date; Linux and macOS with coreutils.
+# Under Hyprland the window opens on the project's workspace, named
+# <parent>/<repo> the way the rest of the desktop is (Personal/brain-cli),
+# or on LOGO_WORKSPACE when set; the rule lives for the session only.
 #
-# Open the logo lab, hot-reloading tools/logo as it is edited
-logo: deps
+# Open DIR's child in a hot-reloading window titled TITLE
+hot DIR TITLE SIZE="1440x960": deps
     #!/usr/bin/env bash
     set -euo pipefail
     [ -e "{{jm}}"/ui/blend2d/lib/libblend2d.a ] || (cd "{{jm}}" && just blend2d)
-    mkdir -p build/debug build/logo
-    {{odin}} build tools/logo/host -debug {{uiflags}} {{cxx_link}} -out:build/debug/logo-host{{exe}}
-    rm -f build/logo.watch
+    mkdir -p build/debug build/hot
+    {{odin}} build tools/host -debug {{uiflags}} {{cxx_link}} -out:build/debug/host{{exe}}
+    name=$(basename "{{DIR}}")
+    pointer=build/$name.watch
+    rm -f "$pointer"
     (
       last=""
       while true; do
-        mt=$(stat -c %Y tools/logo/*.odin | sort -n | tail -1)
+        mt=$(stat -c %Y "{{DIR}}"/*.odin | sort -n | tail -1)
         if [ "$mt" != "$last" ]; then
           last=$mt
-          out=build/logo/logo-$(date +%s%N){{exe}}
-          if {{odin}} build tools/logo -debug {{uiflags}} {{cxx_link}} -out:"$out"; then
-            printf '%s' "$out" > build/logo.watch
-            echo "logo: ready $out"
-            ls -t build/logo/logo-* | tail -n +3 | xargs -r rm -f
+          out=build/hot/$name-$(date +%s%N){{exe}}
+          if {{odin}} build "{{DIR}}" -debug {{uiflags}} {{cxx_link}} -out:"$out"; then
+            printf '%s' "$out" > "$pointer"
+            echo "hot: ready $out"
+            ls -t build/hot/$name-* | tail -n +3 | xargs -r rm -f
           else
-            echo "logo: build failed; the window keeps the last good build"
+            echo "hot: build failed; the window keeps the last good build"
           fi
         fi
         sleep 0.4
@@ -152,15 +159,18 @@ logo: deps
     ) &
     watcher=$!
     trap 'kill $watcher 2>/dev/null' EXIT
-    while [ ! -f build/logo.watch ]; do sleep 0.2; done
-    # Under Hyprland the window opens on the project's workspace, named
-    # <parent>/<repo> the way the rest of the desktop is (Personal/brain-cli),
-    # or on LOGO_WORKSPACE when set. The rule lives for the session only.
+    while [ ! -f "$pointer" ]; do sleep 0.2; done
     if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
       ws="${LOGO_WORKSPACE:-$(basename "$(dirname "{{root}}")")/$(basename "{{root}}")}"
-      hyprctl eval "hl.window_rule({ match = { title = '^(brain · logo lab)$' }, workspace = 'name:$ws' })" >/dev/null || true
+      hyprctl eval "hl.window_rule({ match = { title = '^({{TITLE}})$' }, workspace = 'name:$ws' })" >/dev/null || true
     fi
-    build/debug/logo-host{{exe}} build/logo.watch
+    build/debug/host{{exe}} "$pointer" "{{TITLE}}" "{{SIZE}}"
+
+# Open the logo lab, hot-reloading tools/logo as it is edited
+logo: (hot "tools/logo" "brainfold · logo lab")
+
+# Open the desk prototype, hot-reloading tools/desk as it is edited
+desk: (hot "tools/desk" "brainfold desk" "1280x840")
 
 # branding/ holds the mark tools/logo settled on. The SVGs come from the
 # same geometry the lab draws; the PNGs are rasterised from them, so
@@ -174,7 +184,7 @@ branding: deps
     build/debug/logo{{exe}} -svg branding
     for s in light dark; do \
       rsvg-convert -w 1024 -h 1024 branding/mark-$s.svg -o branding/mark-$s.png; \
-      rsvg-convert -w 1120 -h 400 branding/hero-$s.svg -o branding/hero-$s.png; \
+      rsvg-convert -w 1400 -h 400 branding/hero-$s.svg -o branding/hero-$s.png; \
     done
     ls -l branding
 
