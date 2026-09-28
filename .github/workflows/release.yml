@@ -35,14 +35,10 @@ jobs:
             asset: brain-windows-amd64.exe
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      # jm:selfupdate lives on jm's `selfupdate` branch until it is merged;
-      # drop the ref then.
+      # jm is a submodule, pinned to the commit local builds use.
       - uses: actions/checkout@v4
         with:
-          repository: JackMordaunt/jm
-          ref: selfupdate
-          path: jm
+          submodules: true
       - uses: laytan/setup-odin@v2.12.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

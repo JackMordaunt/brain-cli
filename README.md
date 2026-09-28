@@ -152,9 +152,9 @@ PATH. `git` is used by `brain lint --staged`, `brain secrets`, and the hooks.
 `gitleaks` is optional and improves `brain secrets`.
 
 To build: [Odin](https://odin-lang.org) and the
-[jm collection](https://github.com/jackmordaunt/jm), checked out beside this
-repository or named by `JM=<path>`, with its SQLite archive built
-(`just sqlite` there).
+[jm collection](https://mordaunt.dev/code/jm), pinned as the `jm`
+submodule. `just build` fetches it and builds its SQLite archive when either
+is missing; `JM=<path>` builds against another checkout instead.
 
 On Windows, `brain install` links the binary into `~/.local/bin` (Developer
 Mode) or copies it; add that directory to the user PATH for PowerShell and

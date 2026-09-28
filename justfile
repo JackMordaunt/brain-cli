@@ -1,6 +1,7 @@
 # Recipes run through `sh -cu`: just ships no shell, so on Windows this needs
 # Git Bash on PATH. The tool itself is one static binary and needs nothing.
 #
+#   just deps      fetch the jm submodule and build its SQLite archive
 #   just build     debug binary with the debug allocator and ASan -> build/debug
 #   just release   optimised binary                                -> build/release
 #   just test      the package's tests against the fixture vault
@@ -9,10 +10,10 @@
 #   just clean     remove build/ and the index
 
 odin  := env("ODIN", "odin")
-# The jm collection: https://github.com/jackmordaunt/jm, checked out beside
-# this repository by default. JM overrides.
-jm    := env("JM", replace(home_directory() / "Source" / "jm", "\\", "/"))
 root  := replace(justfile_directory(), "\\", "/")
+# The jm collection: https://mordaunt.dev/code/jm, pinned as the jm
+# submodule. JM=<path> builds against another checkout instead.
+jm    := env("JM", root / "jm")
 flags := "-vet -strict-style -collection:jm=" + jm + " -define:BRAIN_TOOL=" + root
 # `just build SAN=` drops the sanitizer when a library gets in its way.
 san   := env("SAN", "-sanitize:address")
@@ -22,18 +23,26 @@ targets := "linux_amd64 darwin_arm64 windows_amd64"
 default:
     @just --list --unsorted
 
+# The jm submodule, when JM does not name another checkout, and its SQLite
+# archive, which jm:sqlite3 links.
+deps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "{{jm}}" = "{{root}}/jm" ] && [ ! -e jm/.git ]; then git submodule update --init jm; fi
+    if ! ls "{{jm}}"/sqlite3/lib/sqlite3.* >/dev/null 2>&1; then (cd "{{jm}}" && just sqlite); fi
+
 # Debug binary -> build/debug/brain
-build:
+build: deps
     mkdir -p build/debug
     {{odin}} build . -debug {{san}} {{flags}} -out:build/debug/brain{{exe}}
 
 # Optimised binary -> build/release/brain
-release:
+release: deps
     mkdir -p build/release
     {{odin}} build . -o:speed {{flags}} -out:build/release/brain{{exe}}
 
 # Type-check every target, with and without -debug.
-check:
+check: deps
     for t in {{targets}}; do \
       {{odin}} check . {{flags}} -target:$t || exit 1; \
       {{odin}} check . {{flags}} -debug -target:$t || exit 1; \
