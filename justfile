@@ -7,6 +7,9 @@
 #   just test      the package's tests against the fixture vault
 #   just check     type-check for linux, darwin and windows, debug and release
 #   just install   bind this machine to a vault
+#   just logo      open the logo lab, hot-reloading tools/logo as it is edited
+#   just branding  regenerate branding/ (SVG from tools/logo, PNG via rsvg-convert)
+#   just preview   render README.md and ARCHITECTURE.md to build/ and open them
 #   just clean     remove build/ and the index
 
 odin  := env("ODIN", "odin")
@@ -15,9 +18,13 @@ root  := replace(justfile_directory(), "\\", "/")
 # submodule. JM=<path> builds against another checkout instead.
 jm    := env("JM", root / "jm")
 flags := "-vet -strict-style -collection:jm=" + jm + " -define:BRAIN_TOOL=" + root
+# The same without BRAIN_TOOL, which only the CLI reads: tools/logo would warn.
+uiflags := "-vet -strict-style -collection:jm=" + jm
 # `just build SAN=` drops the sanitizer when a library gets in its way.
 san   := env("SAN", "-sanitize:address")
 exe   := if os() == "windows" { ".exe" } else { "" }
+# Blend2D is C++: anything linking jm:ui/render needs the runtime off Windows.
+cxx_link := if os() == "windows" { "" } else { "-extra-linker-flags:\"-lstdc++\"" }
 targets := "linux_amd64 darwin_arm64 windows_amd64"
 
 default:
@@ -108,6 +115,88 @@ test-installer: release
 # Put the CLI on PATH and bind this machine to a vault.
 install VAULT: release
     build/release/brain{{exe}} install {{VAULT}}
+
+# The logo lab: tools/logo/host owns the window; tools/logo draws the marks
+# and is rebuilt here every time one of its .odin files changes, into its
+# own timestamped binary under build/logo, and named in build/logo.watch,
+# which the host re-reads and respawns from (ui/sdl.run_host). The loop is
+# a shell one rather than jm's tools/hot-watch because that build omits the
+# C++ runtime Blend2D needs on Linux. GNU stat and date; Linux and macOS
+# with coreutils.
+#
+# Open the logo lab, hot-reloading tools/logo as it is edited
+logo: deps
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -e "{{jm}}"/ui/blend2d/lib/libblend2d.a ] || (cd "{{jm}}" && just blend2d)
+    mkdir -p build/debug build/logo
+    {{odin}} build tools/logo/host -debug {{uiflags}} {{cxx_link}} -out:build/debug/logo-host{{exe}}
+    rm -f build/logo.watch
+    (
+      last=""
+      while true; do
+        mt=$(stat -c %Y tools/logo/*.odin | sort -n | tail -1)
+        if [ "$mt" != "$last" ]; then
+          last=$mt
+          out=build/logo/logo-$(date +%s%N){{exe}}
+          if {{odin}} build tools/logo -debug {{uiflags}} {{cxx_link}} -out:"$out"; then
+            printf '%s' "$out" > build/logo.watch
+            echo "logo: ready $out"
+            ls -t build/logo/logo-* | tail -n +3 | xargs -r rm -f
+          else
+            echo "logo: build failed; the window keeps the last good build"
+          fi
+        fi
+        sleep 0.4
+      done
+    ) &
+    watcher=$!
+    trap 'kill $watcher 2>/dev/null' EXIT
+    while [ ! -f build/logo.watch ]; do sleep 0.2; done
+    # Under Hyprland the window opens on the project's workspace, named
+    # <parent>/<repo> the way the rest of the desktop is (Personal/brain-cli),
+    # or on LOGO_WORKSPACE when set. The rule lives for the session only.
+    if command -v hyprctl >/dev/null 2>&1 && [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+      ws="${LOGO_WORKSPACE:-$(basename "$(dirname "{{root}}")")/$(basename "{{root}}")}"
+      hyprctl eval "hl.window_rule({ match = { title = '^(brain · logo lab)$' }, workspace = 'name:$ws' })" >/dev/null || true
+    fi
+    build/debug/logo-host{{exe}} build/logo.watch
+
+# branding/ holds the mark tools/logo settled on. The SVGs come from the
+# same geometry the lab draws; the PNGs are rasterised from them, so
+# editing tools/logo and rerunning this is the whole workflow. Needs
+# rsvg-convert (librsvg); the hero's wordmark wants JetBrains Mono installed.
+#
+# Regenerate branding/ from tools/logo
+branding: deps
+    mkdir -p build/debug branding
+    {{odin}} build tools/logo -debug {{uiflags}} {{cxx_link}} -out:build/debug/logo{{exe}}
+    build/debug/logo{{exe}} -svg branding
+    for s in light dark; do \
+      rsvg-convert -w 1024 -h 1024 branding/mark-$s.svg -o branding/mark-$s.png; \
+      rsvg-convert -w 1120 -h 400 branding/hero-$s.svg -o branding/hero-$s.png; \
+    done
+    ls -l branding
+
+# A local look at the docs as GitHub would show them: comrak (GitHub's
+# dialect, raw HTML kept so the hero's <picture> survives) into a bare page
+# under build/, with <base> pointing back at the repo so branding/ resolves.
+# Follows the browser's light or dark scheme.
+#
+# Render README.md and ARCHITECTURE.md to build/ and open the README
+preview:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p build
+    for f in README ARCHITECTURE; do
+      {
+        printf '<!doctype html><meta charset=utf-8><meta name=color-scheme content="light dark"><base href="../"><title>%s</title>' "$f"
+        printf '<body style="max-width:52em;margin:2em auto;padding:0 1em;font:16px/1.55 system-ui;color-scheme:light dark">'
+        printf '<style>pre{overflow:auto;padding:1em;background:#8881;border-radius:6px}code{font:14px ui-monospace,monospace}table{border-collapse:collapse}td,th{border:1px solid #8884;padding:.3em .6em;text-align:left}img{max-width:100%%}blockquote{margin:0;padding:0 1em;border-left:3px solid #8886;color:#888}</style>'
+        comrak --gfm --unsafe "$f.md" 2>/dev/null | sed 's|href="\([A-Z]*\)\.md"|href="build/\1.html"|g'
+      } > "build/$f.html"
+    done
+    setsid -f xdg-open build/README.html >/dev/null 2>&1 || echo "open build/README.html"
 
 # The index is disposable; the markdown is canonical.
 clean:
