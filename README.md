@@ -1,185 +1,123 @@
-# brain
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/hero-dark.svg">
+    <img src="branding/hero-light.svg" alt="brain" width="480">
+  </picture>
+</p>
 
-A CLI for a markdown notes vault that agents can search.
+<p align="center">A notes vault your AI agents can search.<br>Plain markdown. One binary. Nothing to host.</p>
 
-Markdown is canonical. The SQLite index is disposable: delete it at any time and
-`brain sync` rebuilds it. Nothing the CLI stores is authoritative, so the vault
-stays readable, diffable and yours.
+## Install
 
-## Two repositories
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="branding/badge-linux-dark.svg">
+  <img src="branding/badge-linux-light.svg" alt="Linux" height="36">
+</picture>
 
-This repository is the tool. Your notes are a separate repository — private,
-committed on your own schedule, never mixed with the CLI's history.
-
-```
-brain install [~/path/to/your/vault]
-```
-
-That records the vault in `~/.config/brain/vault`, puts `brain` on PATH,
-points the vault's git hooks at this checkout, and builds the index. The
-vault is the path given, else `BRAIN_VAULT`, else the one already recorded,
-else `~/Documents/Brain`, which is created as a new git repository with a
-starter `AI/` if it does not exist. Nothing is searched for. Run
-`brain install <path>` again to move to another vault.
-
-Without a checkout, an installer fetches the released binary for the machine
-it runs on, checks its sha256, and puts it in `~/.local/bin`. On Linux and
-macOS:
-
-```
+```sh
 curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
 ```
 
-On Windows, in PowerShell:
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="branding/badge-macos-dark.svg">
+  <img src="branding/badge-macos-light.svg" alt="macOS" height="36">
+</picture>
 
+```sh
+curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
 ```
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="branding/badge-windows-dark.svg">
+  <img src="branding/badge-windows-light.svg" alt="Windows" height="36">
+</picture>
+
+```powershell
 irm https://mordaunt.dev/code/brain-cli/install.ps1 | iex
 ```
 
-Both end by running `brain install`, so a machine with no vault gets one at
-`~/Documents/Brain`. To bind an existing vault instead, set `BRAIN_VAULT`, or
-pass the path to the shell installer with `sh -s -- <vault>`.
+Each one downloads the release for your machine, checks its hash, puts
+`brain` in `~/.local/bin`, and creates a vault at `~/Documents/Brain` if you
+do not have one yet.
 
-`BRAIN_VERSION` pins a release tag and `BRAIN_BINDIR` picks the directory.
-Releases are built by `.github/workflows/release.yml` on a `v*` tag.
+Already keep notes somewhere? Point at them instead:
 
-A release binary keeps itself current. `brain update` fetches the latest
-release, verifies the Ed25519 signature on its checksum file with the key
-compiled into the binary, checks the download against that file, keeps the
-old binary as `brain.old`, swaps the new one in and runs it. Once a day, when
-run at a terminal, `brain` says on stderr that an update exists; it never
-downloads on its own, and hooks, agents and pipes never see the notice.
-`BRAIN_NO_UPDATE=1` silences it. `brain version` prints the build's tag, or
-`dev` for a local build, which never updates itself.
+```sh
+BRAIN_VAULT=~/notes sh install.sh     # at install time
+brain install ~/notes                 # any time after
+```
 
-A single checkout holding both still works: if the checkout has an `AI/` in
-it, that is the vault too.
+## Still just a folder of markdown
+
+The vault is an ordinary directory of `.md` files. Obsidian opens it. `git`
+versions it. `grep` works on it. Nothing brain adds changes that.
+
+What a bare folder does not give an agent, brain layers on top:
+
+- **Ranked search, sized for a context window.** `brain find <terms>` returns whole bullets, best handle first, and nothing else. No file paths to open next, no surrounding prose.
+- **A vocabulary.** `AI/synonyms.tsv` widens each query term, so `systemd` also finds the bullet that says `user unit`.
+- **Bullets that stay well formed.** `brain lint` runs in a pre-commit hook: one fact, a source, a date. `brain secrets` refuses a credential.
+- **A record of what was asked.** Every `find` is logged. `brain log` shows the misses that still miss. `brain doctor` shows what is stale or duplicated.
+- **Memory of what was said.** `brain recall <terms>` searches your agents' own conversation logs, as ranked snippets.
+- **A cache, not a database.** The SQLite index is disposable. Delete it, `brain sync` rebuilds it from the markdown.
+- **One binary that keeps itself current.** `brain update` fetches a signed release. It never updates unasked.
+
+## What a search costs
+
+Measured on a working vault of 88 files, 504 KB. The grep columns search
+for the query's first word, the way an agent without an index would start.
+Tokens are bytes over four.
+
+| query | `brain find` | `grep -ri` over `AI/*.md` | `grep -ri` over the vault |
+|-------|-------------:|--------------------------:|--------------------------:|
+| `hyprland window rule` | 1.8 KB, ~460 tokens | 4.1 KB | 7.3 KB |
+| `jm hot-watch` | 0.7 KB, ~180 tokens | 19.0 KB | 43.4 KB |
+| `sqlite fts5` | 1.6 KB, ~400 tokens | 5.9 KB | 16.6 KB |
+| `brain-cli` | 4.4 KB, ~1,100 tokens | 8.9 KB | 11.4 KB |
+
+Reading the three core files instead costs 57.6 KB, about 14,000 tokens,
+per lookup. The whole vault is about 126,000 tokens. `brain recall` keeps
+the same shape: five snippets for `hyprctl eval` came to 0.9 KB.
 
 ## Use
 
 ```
-brain find <terms...>   search bullets; handle matches rank above body matches
-brain recall <terms...> search agent transcripts (see below)
-brain locate            absolute path to the vault, for agents and scripts
-brain sync              rebuild the index
-brain doctor            what is stale, thin, oversized, duplicated or orphaned
-brain log               misses that still miss, and who is asking
-brain lint [--staged]   check bullet form; hard failures block a commit
-brain secrets           scan for credentials (gitleaks, with a built-in fallback)
+brain find <terms...>     search the vault
+brain recall <terms...>   search past agent conversations
+brain locate              print the vault's path
+brain sync                rebuild the index
+brain doctor              what is stale, thin, duplicated or orphaned
+brain lint                check bullet form
+brain secrets             scan for credentials
+brain update              fetch the latest release
 ```
 
-## Recall — searching transcripts
+Recall is opt in, once per agent: `brain recall --enable claude`.
 
-`brain find` answers what was concluded and is still true. `brain recall`
-answers what was actually *said*, across your agents' transcripts:
+## Give it to your agents
 
-```
-brain recall --enable claude      # opt in, once, per agent
-brain recall <terms...>           # ranked snippets, newest agent formats included
-brain recall --full <id>          # one turn in full
-brain recall --sync               # full re-ingest; normally automatic
-brain recall --sources            # which adapters exist and which are on
-```
+Add three lines to whatever file your agents read at startup:
 
-Transcripts are not vault content. They are machine-written, never committed,
-and their formats belong to other people's programs — so they live in their own
-database (`transcripts.db`), behind their own command, and nothing about them
-reaches the markdown.
+> The Brain is this machine's shared memory. `brain locate` prints its path,
+> `brain find <handle>` searches it, and `brain recall <terms>` searches what
+> was said in past conversations.
 
-A turn is identified by the agent's own id, so a session resumed into a new file
-re-inserts nothing. Results are snippets, not whole turns: ten hits cost about
-half a kilobyte rather than the ~20 KB the full bodies would.
-
-**A recall hit is evidence of what was said, not of what is true.** A claim
-retracted three turns later reads exactly like a sound one. Vault bullets and
-the current code outrank it.
-
-The current session is excluded by default, so an agent asking whether it has
-discussed something does not find itself. A conversation that was resumed into
-a second file can still surface its earlier half; `--all` turns the filter off.
-
-### Adding an agent
-
-One `Adapter` in `brain/adapters.odin`: a `list` proc that names every
-transcript on the machine and an `emit` proc that turns one transcript into
-`Turn` values (id, timestamp, role, session, title, cwd, body). Add it to
-`ADAPTERS` and `brain recall --enable <name>` knows it.
-
-A transcript with no title is a headless API run, not a conversation, and should
-emit nothing — that is the difference between every file on disk and the few
-worth recalling.
-
-## The vault's shape
-
-Three core files — `AI/MEMORY.md`, `AI/LEARNINGS.md`, `AI/TUNINGS.md` — hold
-bullets of one fact each:
+Bullets in the vault look like this, one fact each:
 
 ```
-- **handle** (aliases: what a future searcher might type) — the fact — source — YYYY-MM-DD
+- **handle** (aliases) — the fact — source — 2026-09-28
 ```
 
-`brain lint` enforces the trailing date and refuses a bullet carrying a literal
-credential. Everything else in the vault is prose, indexed line by line so
-handoffs and longer notes are findable too.
+## Build from source
 
-Every `find` is logged with its entry count and its caller. Claude Code is
-recognised from its own environment; any other agent sets `BRAIN_CALLER` and
-`BRAIN_SESSION` so `brain log` can say who asks and how often. A zero-hit query
-is a backlog item only while it still misses: `brain log` re-runs each one and
-sets aside those a later edit answered. `brain doctor` uses the same log to name
-bullets returned often enough that a gate or a project file should carry them.
+Needs [Odin](https://odin-lang.org) and `just`.
 
-The vault's vocabulary is `AI/synonyms.tsv`: tab-separated `term` and
-`expansion` rows under a header, one expansion per row. `find` widens each
-query term with its rows, so `systemd` can also match a bullet that says
-`user unit`. The file is reloaded whole on every `sync`; the misses `brain
-log` lists are the backlog for editing it. A vault without the file has no
-expansion.
-
-`testdata/vault` is a fixture of exactly this shape; `just test` runs the whole
-suite against a copy of it, so the tests pass on a machine with no notes at all.
-
-## What is in here
-
-| file | what it is |
-|------|------------|
-| `main.odin` | the entry point |
-| `brain/` | the CLI: vault scanner, index, every subcommand, and their tests |
-| `bin/hooks/pre-commit` | runs `brain lint --staged` and `brain secrets --staged`; hard failures block the commit |
-| `bin/hooks/commit-msg` | delegates to the global hook, which a repo-local `core.hooksPath` would otherwise shadow |
-| `bin/hooks/post-commit` | resyncs the index after every commit |
-| `.gitleaks.toml` | the default ruleset `brain secrets` applies |
-| `starter/` | the vault `brain install` creates when none exists |
-| `testdata/` | the fixture vault and transcripts the test suite runs against |
-
-The hooks and the gitleaks ruleset are compiled into the binary. `brain
-install` writes the hooks under `~/.config/brain/hooks` with the binary's own
-path inside them, so a release binary needs no checkout and a hook runs
-whatever PATH git was started with. Edit the files here; a rebuild picks them
-up.
-
-## Requirements
-
-To run: one static binary. SQLite with FTS5 is linked in; nothing is needed on
-PATH. `git` is used by `brain lint --staged`, `brain secrets`, and the hooks.
-`gitleaks` is optional and improves `brain secrets`.
-
-To build: [Odin](https://odin-lang.org) and the
-[jm collection](https://mordaunt.dev/code/jm), pinned as the `jm`
-submodule. `just build` fetches it and builds its SQLite archive when either
-is missing; `JM=<path>` builds against another checkout instead.
-
-On Windows, `brain install` links the binary into `~/.local/bin` (Developer
-Mode) or copies it; add that directory to the user PATH for PowerShell and
-cmd. Git Bash users get it from `.bashrc`. Re-run install after a rebuild
-when the binary was copied.
-
-## Development
-
+```sh
+git clone https://mordaunt.dev/code/brain-cli && cd brain-cli
+just install ~/Documents/Brain
 ```
-just build     debug binary with the debug allocator and ASan -> build/debug
-just release   optimised binary                                -> build/release
-just test      the package's tests against the fixture vault
-just check     type-check for linux, darwin and windows
-just install   bind this machine to a vault
-```
+
+## Learn more
+
+[ARCHITECTURE.md](ARCHITECTURE.md) explains how the index, recall, hooks and
+updates work, and what each file in this repository is for.
