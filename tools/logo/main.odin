@@ -293,22 +293,22 @@ write_fissure_rects :: proc(b: ^strings.Builder, ink: ui.Color) {
 
 mark_svg :: proc(k: Ink) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintln(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" role="img" aria-label="brain">`)
+	fmt.sbprintln(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" role="img" aria-label="brainfold">`)
 	write_fissure_rects(&b, k.ink)
 	fmt.sbprint(&b, "</svg>\n")
 	return strings.to_string(b)
 }
 
-// hero_svg is the lockup: the mark at 140 px and the wordmark in a mono
+// hero_svg is the lockup: the mark at 140 px and the brainfold wordmark in a mono
 // face. The font-family names JetBrains Mono first and ends in the generic
 // monospace; nothing is embedded, so the mark is the constant part.
 hero_svg :: proc(k: Ink) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintln(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 200" width="560" height="200" role="img" aria-label="brain">`)
+	fmt.sbprintln(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 200" width="700" height="200" role="img" aria-label="brainfold">`)
 	fmt.sbprintln(&b, `  <g transform="translate(40 30) scale(1.4)">`)
 	write_fissure_rects(&b, k.ink)
 	fmt.sbprintln(&b, `  </g>`)
-	fmt.sbprintfln(&b, `  <text x="210" y="134" font-family="JetBrains Mono, JetBrainsMono Nerd Font, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" font-size="96" fill="%s">brain</text>`, hex(k.ink))
+	fmt.sbprintfln(&b, `  <text x="210" y="130" font-family="JetBrains Mono, JetBrainsMono Nerd Font, SFMono-Regular, Menlo, Consolas, monospace" font-weight="700" font-size="84" fill="%s">brainfold</text>`, hex(k.ink))
 	fmt.sbprint(&b, "</svg>\n")
 	return strings.to_string(b)
 }
@@ -374,7 +374,7 @@ draw_detail :: proc(gtx: ^ui.Ctx, m: ^Model, k: Ink, w, h: f32) {
 	// lockup: mark + wordmark
 	x = PAD
 	draw_mark(gtx, mk, {x, y}, 56, k)
-	draw_mono_text(gtx, "brain", {x + 70, y + 4}, 48, k.ink)
+	draw_mono_text(gtx, "brainfold", {x + 70, y + 4}, min(48, (inner - 70) / 5.6), k.ink)
 	y += 84
 
 	// inverted paper: the big mark, the wordmark beside it, and when there
@@ -384,7 +384,7 @@ draw_detail :: proc(gtx: ^ui.Ctx, m: ^Model, k: Ink, w, h: f32) {
 	ih := big + 56
 	ui.fill(gtx.ops, ui.Round_Rect{{PAD, y, inner, ih}, 16}, inv.paper)
 	draw_mark(gtx, mk, {PAD + 24, y + 28}, big, inv)
-	draw_mono_text(gtx, "brain", {PAD + 24 + big + 14, y + ih - 28 - 40}, 32, inv.ink)
+	draw_mono_text(gtx, "brainfold", {PAD + 24 + big + 14, y + ih - 28 - 40}, min(32, (inner - 48 - big - 14) / 5.6), inv.ink)
 	if inner >= 400 {
 		draw_mark(gtx, mk, {PAD + inner - 24 - 16, y + 24}, 16, inv)
 		draw_mark(gtx, mk, {PAD + inner - 24 - 32, y + 56}, 32, inv)
@@ -395,7 +395,7 @@ draw_detail :: proc(gtx: ^ui.Ctx, m: ^Model, k: Ink, w, h: f32) {
 
 draw_toolbar_main :: proc(gtx: ^ui.Ctx, m: ^Model, slider_w: f32) {
 	th := gtx.theme
-	ui.label(gtx, "brain · logo lab", {size = th.heading_size})
+	ui.label(gtx, "brainfold · logo lab", {size = th.heading_size})
 	ui.spacer(gtx, 12)
 	ui.checkbox(gtx, "dark", &m.is_dark)
 	ui.label(gtx, fmt.tprintf("size %.0f", m.size), {color = th.muted})

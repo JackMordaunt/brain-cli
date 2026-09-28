@@ -1,11 +1,11 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="branding/hero-dark.svg">
-    <img src="branding/hero-light.svg" alt="brain" width="480">
+    <img src="branding/hero-light.svg" alt="brainfold" width="560">
   </picture>
 </p>
 
-<p align="center">A notes vault your AI agents can search.<br>Plain markdown. One binary. Nothing to host.</p>
+<p align="center"><b>brainfold</b> is a notes vault your AI agents can search.<br>Plain markdown. One binary. Nothing to host. The command is <code>brain</code>.</p>
 
 ## Install
 

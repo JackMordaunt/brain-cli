@@ -30,5 +30,5 @@ svg_carries_each_bar :: proc(t: ^testing.T) {
 		want := fmt.tprintf(`<rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" rx="%.1f" fill="#1c1b1a"/>`, b.rect.x, b.rect.y, b.rect.w, b.rect.h, b.radius)
 		testing.expect(t, strings.contains(svg, want), want)
 	}
-	testing.expect(t, strings.contains(hero_svg(k), ">brain</text>"), "wordmark missing")
+	testing.expect(t, strings.contains(hero_svg(k), ">brainfold</text>"), "wordmark missing")
 }
