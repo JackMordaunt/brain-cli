@@ -6,6 +6,7 @@ import "core:testing"
 
 import "jm:path"
 import "jm:sh"
+import "jm:sqlite3"
 
 @(test)
 blocks_are_added_refreshed_and_removed :: proc(t: ^testing.T) {
@@ -248,4 +249,33 @@ install_leaves_a_broken_settings_file_alone :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(o, "does not parse"), o)
 	text, _ := path.read(settings)
 	testing.expect_value(t, text, "{ not json")
+}
+
+// A managed block reports what it did: added, current, refreshed.
+@(test)
+block_apply_reports_its_outcome :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	file := path.join(f.root, "notes.md")
+	testing.expect_value(t, block_apply(f.cli, file, "t", "<!--", "-->", "one", "brain test"), "added")
+	testing.expect_value(t, block_apply(f.cli, file, "t", "<!--", "-->", "one", "brain test"), "current")
+	testing.expect_value(t, block_apply(f.cli, file, "t", "<!--", "-->", "two", "brain test"), "refreshed")
+	text, _ := path.read(file)
+	testing.expect(t, strings.has_prefix(text, "<!-- brain:t >>> managed by `brain test`") && strings.contains(text, "\ntwo\n") && !strings.contains(text, "\none\n"), text)
+}
+
+// Bytes logged by a lookup survive a reindex, which carries the log over.
+@(test)
+reindex_carries_the_bytes_column :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, _ := exec(f.cli, "find", "sqlite")
+	_, _, code := exec(f.cli, "reindex")
+	testing.expect_value(t, code, 0)
+	db, err := open_db(f.cli.db)
+	testing.expect_value(t, err, "")
+	defer sqlite3.close(&db)
+	testing.expect_value(t, scalar_text(db, "select bytes from queries order by id desc limit 1"), int_str(i64(len(o))))
 }

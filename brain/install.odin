@@ -26,12 +26,18 @@ os_kind :: proc() -> string {
 }
 
 say :: proc(cli: ^Cli, format: string, args: ..any) {
+	if cli.json {
+		return
+	}
 	out(cli, cli.dry ? "  [dry] " : "  ")
 	outf(cli, format, ..args)
 	out(cli, "\n")
 }
 
 note :: proc(cli: ^Cli, format: string, args: ..any) {
+	if cli.json {
+		return
+	}
 	out(cli, "  ")
 	outf(cli, format, ..args)
 	out(cli, "\n")
@@ -59,7 +65,7 @@ backup :: proc(p: string) {
 
 // block_apply writes body between the tag's markers in file, adding the
 // block at the top when it is absent and replacing it when it differs.
-block_apply :: proc(cli: ^Cli, file, tag, co, cc, body: string, by := "brain install") {
+block_apply :: proc(cli: ^Cli, file, tag, co, cc, body: string, by := "brain install") -> (status: string) {
 	b := block_begin(co, tag, cc, by)
 	e := block_end(co, tag, cc)
 	open_mark := strings.concatenate({"brain:", tag, " >>>"})
@@ -82,25 +88,26 @@ block_apply :: proc(cli: ^Cli, file, tag, co, cc, body: string, by := "brain ins
 		}
 		if strings.join(cur[:], "\n") == want {
 			say(cli, "%s: already current", file)
-			return
+			return "current"
 		}
 		say(cli, "%s: block refreshed", file)
 		if cli.dry {
-			return
+			return "refreshed"
 		}
 		backup(file)
 		path.write(file, replace_block(text, open_mark, close_mark, want))
-		return
+		return "refreshed"
 	}
 	say(cli, "%s: block added", file)
 	if cli.dry {
-		return
+		return "added"
 	}
 	if exists && text != "" {
 		backup(file)
 	}
 	path.mkdirs(path.dir(file))
 	path.write(file, strings.concatenate({want, "\n\n", text}))
+	return "added"
 }
 
 // replace_block swaps the lines from the open marker to the close marker for
@@ -435,7 +442,7 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 		out(cli, "\n(dry run: nothing was written)\n")
 		return 0
 	}
-	return cmd_sync(cli, nil)
+	return cmd_reindex(cli, nil)
 }
 
 CLAUDE_BLOCK :: "@~/.agents/AGENTS.md\n\nThe Brain is this machine's shared agent memory. `brain locate` prints its path,\n`brain find <handle>` searches it, and `brain recall <terms>` searches what was\nsaid in past agent conversations. Do not hard-code the path. A session opens\nwith `brain pack`, the vault's bullets about this repository. When work settles\na durable fact, `brain propose '- **handle** (aliases: ...) — fact'` queues it\nfor a person to approve; never edit the vault's core files directly."

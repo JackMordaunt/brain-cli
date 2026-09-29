@@ -35,6 +35,15 @@ when ODIN_OS == .Windows {
 PUBLIC_KEY :: "669f31988381713bf2698ce408ace480fdf0130e2e3168e3916d67cf6afe56dc"
 
 cmd_version :: proc(cli: ^Cli, args: []string) -> int {
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field(&w, "version", VERSION == "" ? "dev" : VERSION)
+		jw_field(&w, "asset", ASSET)
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return 0
+	}
 	outf(cli, "brain %s (%s)\n", VERSION == "" ? "dev" : VERSION, ASSET)
 	return 0
 }

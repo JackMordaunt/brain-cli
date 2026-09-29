@@ -9,7 +9,7 @@ import "jm:path"
 import "jm:sqlite3"
 
 // The index is disposable and rebuilt on demand, so no agent needs to know
-// that 'brain sync' exists: a missing or stale database resyncs itself.
+// that 'brain reindex' exists: a missing or stale database resyncs itself.
 ensure_db :: proc(cli: ^Cli) -> string {
 	if err := need_vault(cli); err != "" {
 		return err
@@ -76,9 +76,18 @@ newer_md_than :: proc(vault, db: string) -> bool {
 	return false
 }
 
-cmd_sync :: proc(cli: ^Cli, args: []string) -> int {
-	if err := sync(cli, quiet = false); err != "" {
+cmd_reindex :: proc(cli: ^Cli, args: []string) -> int {
+	if err := sync(cli, quiet = cli.json); err != "" {
 		return fail(cli, err)
+	}
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field_int(&w, "bullets", i64(cli.indexed.bullets))
+		jw_field_int(&w, "links", i64(cli.indexed.links))
+		jw_field_int(&w, "files", i64(cli.indexed.files))
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
 	}
 	return 0
 }
@@ -137,6 +146,7 @@ sync :: proc(cli: ^Cli, quiet: bool) -> string {
 	sqlite3.exec(db, fmt.tprintf("pragma user_version=%d", SCHEMA))
 	bullets := scalar_int(db, "select count(*) from bullets")
 	links := scalar_int(db, "select count(*) from links")
+	cli.indexed = {bullets, links, len(files)}
 	sqlite3.close(&db)
 
 	if err := replace_file(tmp, cli.db); err != "" {
@@ -250,7 +260,7 @@ step :: proc(stmt: ^sqlite3.Stmt, args: ..sqlite3.Value) -> string {
 }
 
 // carry_log copies the query log from the previous index. A log written
-// before the caller columns existed carries over with them empty. Bullet
+// before the caller or bytes columns existed carries over with them empty. Bullet
 // row ids are reassigned on every sync, so hits are recorded by handle and
 // copy across unchanged. Failures are ignored: an old file that cannot be
 // read costs the log, not the index.
@@ -259,7 +269,10 @@ carry_log :: proc(db: sqlite3.Db, old_path: string) {
 		return
 	}
 	defer sqlite3.exec(db, "detach old")
-	if sqlite3.exec(db, "select caller, session from old.queries limit 0") == nil {
+	if sqlite3.exec(db, "select bytes from old.queries limit 0") == nil {
+		sqlite3.exec(db, `insert into queries(id,ts,q,hits,caller,session,bytes)
+			select rowid,ts,q,hits,caller,session,bytes from old.queries`)
+	} else if sqlite3.exec(db, "select caller, session from old.queries limit 0") == nil {
 		sqlite3.exec(db, `insert into queries(id,ts,q,hits,caller,session)
 			select rowid,ts,q,hits,caller,session from old.queries`)
 	} else {

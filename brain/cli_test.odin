@@ -1,5 +1,6 @@
 package brain
 
+import "core:encoding/json"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -123,7 +124,7 @@ find_ranks_a_handle_and_reaches_a_document :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(o, "-- documents --"), "find document")
 	o, _, code = exec(f.cli, "find", "zzzznope")
 	testing.expect_value(t, code, 1)
-	testing.expect(t, strings.has_prefix(o, "no hits for: zzzznope"), "a miss says so")
+	testing.expect(t, strings.has_prefix(o, "nothing in the vault for: zzzznope"), "a miss says so")
 }
 
 // The vault's AI/synonyms.tsv is the query vocabulary: a term in it expands
@@ -545,4 +546,105 @@ import_proposes_claude_memories_and_lists :: proc(t: ^testing.T) {
 	_, e, code = exec(f.cli, "import", path.join(f.root, "missing.md"))
 	testing.expect_value(t, code, 1)
 	testing.expect(t, strings.contains(e, "cannot read"), e)
+}
+
+// Every state command answers --json with one parseable object whose first
+// key names what it is, and an error under --json is an object too.
+@(test)
+every_state_command_speaks_json :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	repo := path.join(f.root, "sqlite")
+	testing.expect_value(t, path.mkdirs(path.join(repo, ".git")), nil)
+	f.cli.env["PWD"] = repo
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	f.cli.env["BRAIN_SESSION"] = "sess-j"
+	// command, the key its object leads with, and that key's value: a quoted
+	// string, true, "array", or "number" for a count above zero.
+	cases := [?][3]string {
+		{"locate", "vault", strings.concatenate({"\"", f.vault, "\""})},
+		{"version", "version", "\"dev\""},
+		{"reindex", "bullets", "number"},
+		{"find sqlite", "query", "\"sqlite\""},
+		{"pack", "project", "\"sqlite\""},
+		{"propose - **json thing** — a fact", "status", "\"proposed\""},
+		{"inbox", "proposals", "array"},
+		{"inbox approve 1", "action", "\"approved\""},
+		{"export claude cursor", "project", "\"sqlite\""},
+		{"doctor", "queries_logged", "number"},
+		{"log", "backlog", "array"},
+		{"ledger", "baseline_bytes", "number"},
+		{"lint", "ok", "true"},
+	}
+	for c in cases {
+		args := strings.split(c[0], " ")
+		append_args := make([dynamic]string)
+		append(&append_args, "--json")
+		for a in args {
+			append(&append_args, a)
+		}
+		o, e, _ := exec(f.cli, ..append_args[:])
+		testing.expect_value(t, e, "")
+		v, perr := json.parse_string(o)
+		testing.expect(t, perr == nil, strings.concatenate({c[0], ": ", o}))
+		obj, ok := v.(json.Object)
+		testing.expect(t, ok, c[0])
+		val, has := obj[c[1]]
+		testing.expect(t, has, strings.concatenate({c[0], " has ", c[1], ": ", o}))
+		right := false
+		switch c[2] {
+		case "array":
+			_, right = val.(json.Array)
+		case "number":
+			#partial switch n in val {
+			case json.Integer:
+				right = n > 0
+			case json.Float:
+				right = n > 0
+			}
+		case "true":
+			b, is_bool := val.(json.Boolean)
+			right = is_bool && bool(b)
+		case:
+			s, is_str := val.(json.String)
+			right = is_str && strings.concatenate({"\"", string(s), "\""}) == c[2]
+		}
+		testing.expect(t, right, strings.concatenate({c[0], ": ", c[1], " should be ", c[2], ": ", o}))
+	}
+	o, e, code := exec(f.cli, "find", "sqlite", "--json")
+	testing.expect(t, strings.contains(o, `"hits":[{"file":"AI/MEMORY.md","line":`) && strings.contains(o, `"handle":"sqlite"`), o)
+	o, _, code = exec(f.cli, "--json", "find", "zzzznope")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.has_prefix(o, `{"query":"zzzznope","hits":[],`), o)
+	o, e, code = exec(f.cli, "--json", "export", "emacs")
+	testing.expect_value(t, code, 1)
+	testing.expect_value(t, e, "")
+	testing.expect(t, strings.has_prefix(o, `{"error":"unknown agent: emacs`), o)
+	o, _, _ = exec(f.cli, "--json", "ledger")
+	testing.expect(t, strings.contains(o, `"callers":[{"caller":"fixture-agent"`) && strings.contains(o, `"tokens_saved":`), o)
+}
+
+// The ledger credits an answered lookup with the core files' size less what
+// it printed, and a miss with only its own cost.
+@(test)
+ledger_counts_tokens_against_the_core_files :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	f.cli.env["BRAIN_SESSION"] = "sess-l"
+	o, _, _ := exec(f.cli, "find", "sqlite")
+	returned := len(o)
+	exec(f.cli, "find", "zzzznope")
+	baseline := core_bytes(f.cli)
+	testing.expect(t, baseline > returned, "the core files outweigh one answer")
+	code: int
+	o, _, code = exec(f.cli, "ledger", "--days", "7")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "Tokens are bytes over four."), o)
+	testing.expect(t, strings.contains(o, "== by caller ==") && strings.contains(o, "fixture-agent") && strings.contains(o, "== last 7 days =="), o)
+	o, _, _ = exec(f.cli, "ledger", "--json")
+	want := strings.concatenate({`{"caller":"fixture-agent","sessions":1,"lookups":2,"answered":1,"tokens_returned":`, int_str(i64(returned / 4)), `,"tokens_saved":`, int_str(i64((baseline - returned) / 4)), `}`})
+	testing.expect(t, strings.contains(o, want), strings.concatenate({want, "\n", o}))
 }

@@ -1,5 +1,6 @@
 package brain
 
+import "core:fmt"
 import "core:os"
 import "core:strings"
 import "core:text/regex"
@@ -49,7 +50,7 @@ cmd_lint :: proc(cli: ^Cli, args: []string) -> int {
 	key_re, _ := regex.create(`BEGIN [A-Z ]*PRIVATE KEY`)
 	today := today_iso()
 
-	fails, warns := 0, 0
+	findings := make([dynamic]Finding)
 	for l in lines {
 		if !is_core(l.file) || !strings.has_prefix(l.text, "- **") {
 			continue
@@ -69,49 +70,81 @@ cmd_lint :: proc(cli: ^Cli, args: []string) -> int {
 		}
 
 		if date == "" {
-			outf(cli, "FAIL %s: **%s** has no trailing ISO date\n", l.file, handle)
-			fails += 1
+			append(&findings, Finding{true, l.file, handle, "date", "has no trailing ISO date"})
 		} else if date > today {
-			outf(cli, "FAIL %s: **%s** is dated in the future (%s)\n", l.file, handle, date)
-			fails += 1
+			append(&findings, Finding{true, l.file, handle, "date", fmt.aprintf("is dated in the future (%s)", date)})
 		}
 		if matches(secret_re, l.text) && !matches(placeholder_re, l.text) {
-			outf(cli, "FAIL %s: **%s** looks like it carries a literal secret\n", l.file, handle)
-			fails += 1
+			append(&findings, Finding{true, l.file, handle, "secret", "looks like it carries a literal secret"})
 		}
 		if matches(key_re, l.text) {
-			outf(cli, "FAIL %s: **%s** contains a private key\n", l.file, handle)
-			fails += 1
+			append(&findings, Finding{true, l.file, handle, "secret", "contains a private key"})
 		}
 		if n := utf8.rune_count_in_string(fact); n > MAXLEN {
-			outf(
-				cli,
-				"warn %s: **%s** fact is %d chars (cap %d) — spill to an artifact and point at it\n",
-				l.file,
-				handle,
-				n,
-				MAXLEN,
-			)
-			warns += 1
+			append(&findings, Finding{false, l.file, handle, "length", fmt.aprintf("fact is %d chars (cap %d) — spill to an artifact and point at it", n, MAXLEN)})
 		}
 		if !strings.contains(header, "(") {
-			outf(cli, "warn %s: **%s** has no aliases — name the words a future searcher will type\n", l.file, handle)
-			warns += 1
+			append(&findings, Finding{false, l.file, handle, "aliases", "has no aliases — name the words a future searcher will type"})
 		}
 	}
 
 	if staged && nonempty_file(cli.db) {
 		if db, err := open_db(cli.db); err == "" {
 			for h in column_texts(db, "select handle from bullets group by lower(handle) having count(*)>1") {
-				outf(cli, "warn duplicate handle in the index: **%s**\n", h)
-				warns += 1
+				append(&findings, Finding{false, "", h, "duplicate", "duplicate handle in the index"})
 			}
 			sqlite3.close(&db)
 		}
 	}
 
+	fails, warns := 0, 0
+	for f in findings {
+		if f.fail {
+			fails += 1
+		} else {
+			warns += 1
+		}
+	}
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field_bool(&w, "ok", fails == 0)
+		for level in ([2]string{"failures", "warnings"}) {
+			jw_key(&w, level)
+			jw_arr(&w)
+			for f in findings {
+				if f.fail != (level == "failures") {
+					continue
+				}
+				jw_obj(&w)
+				jw_field(&w, "file", f.file)
+				jw_field(&w, "handle", f.handle)
+				jw_field(&w, "rule", f.rule)
+				jw_field(&w, "message", f.message)
+				jw_end_obj(&w)
+			}
+			jw_end_arr(&w)
+		}
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return fails == 0 ? 0 : 1
+	}
+	for f in findings {
+		if f.file == "" {
+			outf(cli, "warn %s: **%s**\n", f.message, f.handle)
+		} else {
+			outf(cli, "%s %s: **%s** %s\n", f.fail ? "FAIL" : "warn", f.file, f.handle, f.message)
+		}
+	}
 	outf(cli, "brain lint: %d failure(s), %d warning(s)\n", fails, warns)
 	return fails == 0 ? 0 : 1
+}
+
+// Finding is one thing lint has to say: a failure blocks a commit, a
+// warning never does.
+Finding :: struct {
+	fail:                         bool,
+	file, handle, rule, message: string,
 }
 
 // staged_lines returns every added line of markdown in the vault's index,

@@ -35,37 +35,50 @@ cmd_log :: proc(cli: ^Cli, args: []string) -> int {
 		}
 	}
 
-	out(cli, "== zero-hit queries that still miss (the synonym backlog) ==\n")
 	args_v := make([]sqlite3.Value, len(answered))
 	for q, i in answered {
 		args_v[i] = q
 	}
 	exclude := len(answered) > 0 ? strings.concatenate({" and q not in ", in_list(len(answered))}) : ""
-	print_box(
-		cli,
-		db,
-		strings.concatenate(
-			{
-				"select q as query, count(*) as misses, max(ts) as last from queries where hits=0",
-				exclude,
-				" group by q order by misses desc, last desc limit 30",
-			},
-		),
-		..args_v,
+	backlog := strings.concatenate(
+		{
+			"select q as query, count(*) as misses, max(ts) as last from queries where hits=0",
+			exclude,
+			" group by q order by misses desc, last desc limit 30",
+		},
 	)
+	recent :: "select ts, q as query, hits, caller from queries order by ts desc limit 15"
+	callers :: `select coalesce(nullif(caller,''),'?') as caller, count(*) as queries,
+		   count(distinct nullif(session,'')) as sessions, sum(hits=0) as misses,
+		   sum(coalesce(bytes,0)) as bytes
+		 from queries group by 1 order by 2 desc`
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_key(&w, "backlog")
+		jw_rows(&w, db, backlog, ..args_v)
+		jw_key(&w, "answered")
+		jw_arr(&w)
+		for q in answered {
+			jw_str(&w, q)
+		}
+		jw_end_arr(&w)
+		jw_key(&w, "recent")
+		jw_rows(&w, db, recent)
+		jw_key(&w, "callers")
+		jw_rows(&w, db, callers)
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return 0
+	}
+	out(cli, "== what still misses (the synonym backlog) ==\n")
+	print_box(cli, db, backlog, ..args_v)
 	if len(answered) > 0 {
 		outf(cli, "(%d missed then answered by a later edit: %s)\n", len(answered), strings.join(answered[:], ","))
 	}
-	out(cli, "\n== recent queries ==\n")
-	print_box(cli, db, "select ts, q as query, hits, caller from queries order by ts desc limit 15")
-	out(cli, "\n== who asks: queries, sessions and bytes returned per caller ==\n")
-	print_box(
-		cli,
-		db,
-		`select coalesce(nullif(caller,''),'?') as caller, count(*) as queries,
-		   count(distinct nullif(session,'')) as sessions, sum(hits=0) as misses,
-		   sum(coalesce(bytes,0)) as bytes
-		 from queries group by 1 order by 2 desc`,
-	)
+	out(cli, "\n== recent lookups ==\n")
+	print_box(cli, db, recent)
+	out(cli, "\n== who asks: lookups, sessions and bytes returned per caller ==\n")
+	print_box(cli, db, callers)
 	return 0
 }

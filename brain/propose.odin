@@ -45,7 +45,11 @@ propose_line :: proc(cli: ^Cli, line: string) -> int {
 		}
 		n += 1
 		if q.handle == b.handle {
-			outf(cli, "already proposed as #%d: **%s**\n", n, b.handle)
+			if cli.json {
+				propose_json(cli, "already", n, b.handle)
+			} else {
+				outf(cli, "already proposed as #%d: **%s**\n", n, b.handle)
+			}
 			return 0
 		}
 	}
@@ -56,8 +60,22 @@ propose_line :: proc(cli: ^Cli, line: string) -> int {
 		return fail(cli, fmt.aprintf("cannot write %s: %v", inbox, werr))
 	}
 	n += 1
-	outf(cli, "proposed #%d **%s**; a person approves it with: brain inbox approve %d\n", n, b.handle, n)
+	if cli.json {
+		propose_json(cli, "proposed", n, b.handle)
+	} else {
+		outf(cli, "proposed #%d **%s**; a person approves it with: brain inbox approve %d\n", n, b.handle, n)
+	}
 	return 0
+}
+
+propose_json :: proc(cli: ^Cli, status: string, n: int, handle: string) {
+	w := jw_make()
+	jw_obj(&w)
+	jw_field(&w, "status", status)
+	jw_field_int(&w, "n", i64(n))
+	jw_field(&w, "handle", handle)
+	jw_end_obj(&w)
+	jw_flush(cli, &w)
 }
 
 // complete_bullet fills what an agent may leave off: a source, which
@@ -120,13 +138,36 @@ cmd_inbox :: proc(cli: ^Cli, args: []string) -> int {
 	lines, exists := read_inbox(cli)
 	if len(args) == 0 {
 		n := 0
+		w := jw_make()
+		if cli.json {
+			jw_obj(&w)
+			jw_key(&w, "proposals")
+			jw_arr(&w)
+		}
 		for l in lines {
-			if l.is {
-				n += 1
+			if !l.is {
+				continue
+			}
+			n += 1
+			if cli.json {
+				jw_obj(&w)
+				jw_field_int(&w, "n", i64(n))
+				jw_field(&w, "handle", l.bullet.handle)
+				jw_field(&w, "aliases", l.bullet.aliases)
+				jw_field(&w, "fact", l.bullet.fact)
+				jw_field(&w, "source", l.bullet.source)
+				jw_field(&w, "date", l.bullet.date)
+				jw_field(&w, "line", l.text)
+				jw_end_obj(&w)
+			} else {
 				outf(cli, "#%d %s\n", n, l.text)
 			}
 		}
-		if n == 0 {
+		if cli.json {
+			jw_end_arr(&w)
+			jw_end_obj(&w)
+			jw_flush(cli, &w)
+		} else if n == 0 {
 			out(cli, "inbox empty\n")
 		}
 		return 0
@@ -183,7 +224,11 @@ cmd_inbox :: proc(cli: ^Cli, args: []string) -> int {
 		if err := sync(cli, quiet = true); err != "" {
 			return fail(cli, err)
 		}
-		outf(cli, "approved #%d **%s** -> %s\n", want, chosen.bullet.handle, rel)
+		if cli.json {
+			inbox_json(cli, "approved", want, chosen.bullet.handle, rel)
+		} else {
+			outf(cli, "approved #%d **%s** -> %s\n", want, chosen.bullet.handle, rel)
+		}
 	case "drop":
 		if len(args) != 2 {
 			return fail(cli, usage)
@@ -191,7 +236,11 @@ cmd_inbox :: proc(cli: ^Cli, args: []string) -> int {
 		if err := write_inbox(cli, drop_at(lines, at)); err != "" {
 			return fail(cli, err)
 		}
-		outf(cli, "dropped #%d **%s**\n", want, chosen.bullet.handle)
+		if cli.json {
+			inbox_json(cli, "dropped", want, chosen.bullet.handle, "")
+		} else {
+			outf(cli, "dropped #%d **%s**\n", want, chosen.bullet.handle)
+		}
 	case:
 		return fail(cli, usage)
 	}
@@ -207,4 +256,17 @@ drop_at :: proc(lines: []Inbox_Line, at: int) -> []Inbox_Line {
 		}
 	}
 	return kept[:]
+}
+
+inbox_json :: proc(cli: ^Cli, action: string, n: int, handle, to: string) {
+	w := jw_make()
+	jw_obj(&w)
+	jw_field(&w, "action", action)
+	jw_field_int(&w, "n", i64(n))
+	jw_field(&w, "handle", handle)
+	if to != "" {
+		jw_field(&w, "to", to)
+	}
+	jw_end_obj(&w)
+	jw_flush(cli, &w)
 }

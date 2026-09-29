@@ -148,7 +148,7 @@ recall_enabled :: proc(cli: ^Cli) -> bool {
 
 cmd_recall :: proc(cli: ^Cli, args: []string) -> int {
 	limit := RECALL_LIMIT
-	json_out, sessions, prefix := false, false, false
+	json_out, sessions, prefix := cli.json, false, false
 	terms := make([dynamic]string)
 	// Its own transcript is on disk and will be picked up by the next sync,
 	// so without this an agent asking whether it has discussed something
@@ -402,7 +402,7 @@ cmd_recall :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	if n == 0 {
 		strings.builder_reset(&cli.out)
-		outf(cli, "no hits for: %s\n", strings.join(terms[:], " "))
+		outf(cli, "nothing said about: %s\n", strings.join(terms[:], " "))
 		return 1
 	}
 	return 0

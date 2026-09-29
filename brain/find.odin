@@ -321,9 +321,33 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 		)
 	}
 
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field(&w, "query", raw)
+		jw_key(&w, "hits")
+		jw_arr(&w)
+		for h in hits {
+			jw_hit(&w, h)
+		}
+		jw_end_arr(&w)
+		jw_key(&w, "documents")
+		jw_arr(&w)
+		for d in docs {
+			jw_obj(&w)
+			jw_field(&w, "locator", d.locator)
+			jw_field(&w, "text", d.text)
+			jw_end_obj(&w)
+		}
+		jw_end_arr(&w)
+		jw_end_obj(&w)
+		sqlite3.exec_args(db, "update queries set bytes=? where id=?", i64(strings.builder_len(w.b)), qid)
+		jw_flush(cli, &w)
+		return n == 0 ? 1 : 0
+	}
 	if n == 0 {
-		outf(cli, "no hits for: %s\n", raw)
-		out(cli, "(logged — 'brain log' lists zero-hit queries as the synonym backlog)\n")
+		outf(cli, "nothing in the vault for: %s\n", raw)
+		out(cli, "(noted; brain log lists what keeps missing)\n")
 		return 1
 	}
 	// The output is capped by bytes, the budget, so a broad query cannot

@@ -124,28 +124,50 @@ cmd_export :: proc(cli: ^Cli, args: []string) -> int {
 	if body == "" {
 		return fail(cli, strings.concatenate({"no bullets for: ", project}))
 	}
+	w := jw_make()
+	if cli.json {
+		jw_obj(&w)
+		jw_field(&w, "project", project)
+		jw_field(&w, "root", root)
+		jw_key(&w, "files")
+		jw_arr(&w)
+	}
 	for t in targets {
 		file := path.join(root, t.file)
+		status: string
 		if t.own {
-			write_own(cli, file, strings.concatenate({t.head, body}))
+			status = write_own(cli, file, strings.concatenate({t.head, body}))
 		} else {
-			block_apply(cli, file, "memory", "<!--", "-->", strings.trim_right(body, "\n"), "brain export")
+			status = block_apply(cli, file, "memory", "<!--", "-->", strings.trim_right(body, "\n"), "brain export")
 		}
+		if cli.json {
+			jw_obj(&w)
+			jw_field(&w, "agent", t.name)
+			jw_field(&w, "file", t.file)
+			jw_field(&w, "status", status)
+			jw_end_obj(&w)
+		}
+	}
+	if cli.json {
+		jw_end_arr(&w)
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
 	}
 	return 0
 }
 
 // write_own writes a file that is brain's alone, and says nothing was done
 // when it is already current.
-write_own :: proc(cli: ^Cli, file, want: string) {
+write_own :: proc(cli: ^Cli, file, want: string) -> (status: string) {
 	if cur, ok := read_text(file); ok && cur == want {
 		say(cli, "%s: already current", file)
-		return
+		return "current"
 	}
 	say(cli, "%s: written", file)
 	if cli.dry {
-		return
+		return "written"
 	}
 	path.mkdirs(path.dir(file))
 	path.write(file, want)
+	return "written"
 }

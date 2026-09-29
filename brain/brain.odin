@@ -16,6 +16,7 @@ package brain
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 
 import "jm:path"
@@ -52,6 +53,10 @@ Cli :: struct {
 	db:           string,
 	recall_db:    string,
 	dry:          bool,
+	json:         bool, // --json: one object on stdout instead of text
+	indexed:      struct {
+		bullets, links, files: int,
+	}, // what the last reindex counted
 }
 
 // new_cli resolves every path the subcommands share. env overrides the
@@ -157,7 +162,18 @@ need_vault :: proc(cli: ^Cli) -> string {
 
 // run dispatches args and returns the exit code. A failure has been printed
 // to Cli.err as `brain: <message>` by the command that hit it.
-run :: proc(cli: ^Cli, args: []string) -> int {
+run :: proc(cli: ^Cli, raw_args: []string) -> int {
+	// --json is accepted anywhere; the commands that speak it answer with
+	// one object on stdout, the others ignore it.
+	args := make([dynamic]string)
+	cli.json = false
+	for a in raw_args {
+		if a == "--json" {
+			cli.json = true
+		} else {
+			append(&args, a)
+		}
+	}
 	cmd := len(args) > 0 ? args[0] : ""
 	rest := len(args) > 0 ? args[1:] : nil
 	switch cmd {
@@ -179,8 +195,10 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 		return cmd_import(cli, rest)
 	case "recall":
 		return cmd_recall(cli, rest)
-	case "sync":
-		return cmd_sync(cli, rest)
+	case "reindex", "sync": // sync is the old name; installed hooks still say it
+		return cmd_reindex(cli, rest)
+	case "ledger":
+		return cmd_ledger(cli, rest)
 	case "log":
 		return cmd_log(cli, rest)
 	case "doctor":
@@ -208,43 +226,56 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 // fail prints a message the shell version's `die` printed and returns the
 // exit code the caller passes on.
 fail :: proc(cli: ^Cli, msg: string) -> int {
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field(&w, "error", msg)
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return 1
+	}
 	errf(cli, "brain: %s\n", msg)
 	return 1
 }
 
-USAGE :: `brain — query and lint the vault. Markdown is canonical; the index is disposable.
+// parse_positive reads a count argument.
+parse_positive :: proc(s: string) -> (int, bool) {
+	n, ok := strconv.parse_int(s)
+	return n, ok && n > 0
+}
 
-  brain locate [--native] absolute path to the vault, for agents and scripts
-  brain locate --tool     absolute path to this CLI's own checkout
-  brain find <terms...>   search bullets, handle matches ranked first
-    --budget N (tokens, default 1000)  --raw|--terse (agents get terse: no aliases or source)
-  brain pack [<project>]  the briefing to open a project with (default: the repo you are in): its bullets, terse, within
-    --budget N (default 1500) and cached until the vault changes; --fresh rebuilds it
-  brain propose '<bullet>' queue a fact for a person to approve; source and date fill in
-  brain inbox [approve <n> [--to LEARNINGS] | drop <n>]  the proposals waiting
-  brain export <agent>... write this repository's pack into the agent's file: claude (CLAUDE.md),
-    agents (AGENTS.md: codex, opencode, jules, junie, zed, warp), copilot, gemini, cursor, cline, kiro
-  brain import claude | <file.md>  propose what an agent remembered on its own, one bullet each
-  brain mcp               serve find, recall, pack, propose and locate over MCP on stdio
-  brain recall <terms...> search agent transcripts: what was said, not what is true
-    --sync --sources --enable <a> --disable <a> --full <id> --limit N --json
-    --sessions (one row per conversation)  --prefix (last term matches as a prefix)
-  brain sync              rebuild the index from markdown
-  brain doctor            what is stale, thin, oversized, duplicated or orphaned
-  brain log               misses that still miss, and who is asking
-  brain lint [--staged]   check bullet form; hard failures block a commit
-  brain secrets [--staged|--history]  scan for credentials (gitleaks, with a fallback)
-  brain install [<vault>] [--dry-run]  bind this machine to a vault
-  brain uninstall [--dry-run]  undo those bindings; the vault is untouched
-  brain update            replace this binary with the latest signed release
-  brain version           this build and its release asset name
+USAGE :: `brain — memory for your coding agents, in files you own.
 
-This CLI and the notes it searches are separate repositories. 'brain install'
-binds the vault it is given, else BRAIN_VAULT, else the one already recorded
-in ~/.config/brain/vault, else ~/Documents/Brain, which it creates if absent.
+Ask
+  brain find <terms...>      what the vault knows; handle matches first, --budget N tokens
+  brain pack [<project>]     the briefing a session opens with; --budget N, --fresh
+  brain recall <terms...>    what past agent conversations said; --limit N, --full <id>,
+                             --sessions, --prefix, --enable <agent>, --sources
+Remember
+  brain propose '<bullet>'   queue a fact for a person to approve
+  brain inbox                what is waiting; approve <n> [--to LEARNINGS], drop <n>
+  brain import claude        propose what Claude Code remembered on its own; or <file.md>
+Share
+  brain export <agent>...    give this repository's briefing to an agent: claude, agents (codex,
+                             opencode, jules, junie, zed, warp), copilot, gemini, cursor, cline, kiro
+  brain mcp                  the same tools over MCP on stdio, for agents without a shell
+Keep it healthy
+  brain doctor               what is stale, thin, oversized, duplicated or orphaned
+  brain log                  what keeps missing, and who asks
+  brain ledger [--days N]    what lookups cost and saved, by caller, session and day
+  brain lint [--staged]      check bullet form; failures block a commit
+  brain secrets [--staged|--history]  scan for credentials
+  brain reindex              rebuild the index from the markdown (automatic; rarely needed)
+Set up
+  brain install [<vault>]    bind this machine to a vault; --dry-run shows the plan
+  brain uninstall            undo those bindings; the vault is untouched
+  brain locate [--tool]      the vault's path; --tool, this CLI's checkout
+  brain update               replace this binary with the latest signed release
+  brain version              this build
 
-Zero-hit queries are recorded so the synonym table fills from real misses
-rather than guesswork; add a row to the vault's AI/synonyms.tsv and run 'brain sync'.
+--json on any command above the Set up line answers with one object instead.
+The vault is markdown in a folder you own; the index is a cache. 'brain locate'
+prints the folder, and any tool that reads markdown works on it.
 `
 
 // The bootstrap answer: an agent that has `brain` on PATH can always find the
@@ -257,6 +288,15 @@ cmd_locate :: proc(cli: ^Cli, args: []string) -> int {
 		p = cli.tool
 	} else if err := need_vault(cli); err != "" {
 		return fail(cli, err)
+	}
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field(&w, "vault", cli.vault)
+		jw_field(&w, "tool", cli.tool)
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return 0
 	}
 	outf(cli, "%s\n", p)
 	return 0

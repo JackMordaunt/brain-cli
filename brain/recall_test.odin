@@ -55,7 +55,7 @@ recall_finds_snippets_titles_and_sessions :: proc(t: ^testing.T) {
 
 	o, _, code = exec(f.cli, "recall", "playhead", "--exclude", "sess-one")
 	testing.expect_value(t, code, 1)
-	testing.expect(t, strings.has_prefix(o, "no hits"), "recall --exclude")
+	testing.expect(t, strings.has_prefix(o, "nothing said about"), "recall --exclude")
 
 	o, _, code = exec(f.cli, "recall", "--full", "f1")
 	testing.expect_value(t, code, 0)

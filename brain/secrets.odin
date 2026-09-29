@@ -66,11 +66,22 @@ cmd_secrets :: proc(cli: ^Cli, args: []string) -> int {
 		}
 		append(&argv, "--no-banner", "--redact", "--config", cfg)
 		r := sh.exec(argv[:])
-		out(cli, r.stdout)
-		errf(cli, "%s", r.stderr)
 		if r.err != nil {
 			return fail(cli, sh.error(r))
 		}
+		if cli.json {
+			w := jw_make()
+			jw_obj(&w)
+			jw_field_bool(&w, "clean", r.code == 0)
+			jw_field(&w, "scanner", "gitleaks")
+			jw_field(&w, "mode", mode)
+			jw_field(&w, "output", strings.trim_space(strings.concatenate({r.stdout, r.stderr})))
+			jw_end_obj(&w)
+			jw_flush(cli, &w)
+			return r.code
+		}
+		out(cli, r.stdout)
+		errf(cli, "%s", r.stderr)
 		if r.code == 0 {
 			outf(cli, "brain secrets: clean (gitleaks, %s)\n", mode)
 		}
@@ -86,6 +97,25 @@ cmd_secrets :: proc(cli: ^Cli, args: []string) -> int {
 		r = sh.exec({"git", "diff", "--cached", "-U0", "--no-color"}, {dir = cli.vault})
 	}
 	hits := fallback_hits(r.stdout)
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field_bool(&w, "clean", len(hits) == 0)
+		jw_field(&w, "scanner", "built-in")
+		jw_field(&w, "mode", mode)
+		jw_key(&w, "findings")
+		jw_arr(&w)
+		for h, i in hits {
+			if i == 20 {
+				break
+			}
+			jw_str(&w, h)
+		}
+		jw_end_arr(&w)
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return len(hits) == 0 ? 0 : 1
+	}
 	if len(hits) > 0 {
 		errf(cli, "brain secrets: possible secret in the change:\n")
 		for h, i in hits {

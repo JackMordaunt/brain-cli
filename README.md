@@ -59,7 +59,7 @@ What a bare folder does not give an agent, brain layers on top:
 - **Bullets that stay well formed.** `brain lint` runs in a pre-commit hook: one fact, a source, a date. `brain secrets` refuses a credential.
 - **A record of what was asked.** Every `find` is logged. `brain log` shows the misses that still miss. `brain doctor` shows what is stale or duplicated.
 - **Memory of what was said.** `brain recall <terms>` searches your agents' own conversation logs, as ranked snippets.
-- **A cache, not a database.** The SQLite index is disposable. Delete it, `brain sync` rebuilds it from the markdown.
+- **A cache, not a database.** The SQLite index is disposable. Delete it, `brain reindex` rebuilds it from the markdown.
 - **One binary that keeps itself current.** `brain update` fetches a signed release. It never updates unasked.
 
 ## What a search costs
@@ -96,12 +96,17 @@ brain import claude       propose what Claude Code remembered on its own; or any
 brain mcp                 the same over MCP on stdio, for agents without a shell
 brain recall <terms...>   search past agent conversations
 brain locate              print the vault's path
-brain sync                rebuild the index
 brain doctor              what is stale, thin, duplicated or orphaned
+brain log                 what keeps missing, and who asks
+brain ledger              what lookups cost and saved, by caller, session and day
 brain lint                check bullet form
 brain secrets             scan for credentials
+brain reindex             rebuild the index (automatic; rarely needed)
 brain update              fetch the latest release
 ```
+
+Every command above answers `--json` with one object, so a script or an app
+reads the same thing a person does.
 
 Recall is opt in, once per agent: `brain recall --enable claude`.
 

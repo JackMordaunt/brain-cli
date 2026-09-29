@@ -40,10 +40,25 @@ cmd_import :: proc(cli: ^Cli, args: []string) -> int {
 		}
 	}
 	queued := 0
+	quiet := cli.json
+	cli.json = false
 	for l in lines {
 		if code := propose_line(cli, complete_bullet(l, source)); code == 0 {
 			queued += 1
 		}
+	}
+	cli.json = quiet
+	if cli.json {
+		// The per-proposal lines were for a person; the object is the answer.
+		strings.builder_reset(&cli.out)
+		w := jw_make()
+		jw_obj(&w)
+		jw_field(&w, "source", source)
+		jw_field_int(&w, "memories", i64(len(lines)))
+		jw_field_int(&w, "proposed", i64(queued))
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return 0
 	}
 	outf(cli, "%d proposal(s) from %d memories; brain inbox lists them\n", queued, len(lines))
 	return 0

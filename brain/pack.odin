@@ -62,10 +62,29 @@ cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
 	cache := path.join(cli.state, "packs", strings.concatenate({slug, "-", int_str(i64(budget / 4)), ".txt"}))
 	stamp := strings.concatenate({"built ", built, "\n"})
 
+	if cli.json {
+		p := select_pack(db, project, slug, budget)
+		w := jw_make()
+		jw_obj(&w)
+		jw_field(&w, "project", project)
+		jw_key(&w, "bullets")
+		jw_arr(&w)
+		for h in p.hits {
+			jw_hit(&w, h)
+		}
+		jw_end_arr(&w)
+		jw_field(&w, "handoff", p.handoff)
+		jw_field_int(&w, "state_files", i64(p.state))
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return len(p.hits) > 0 ? 0 : 1
+	}
 	body := ""
+	cached := false
 	if !fresh {
 		if c, rerr := path.read(cache); rerr == nil && strings.has_prefix(c, stamp) {
 			body = c[len(stamp):]
+			cached = true
 		}
 	}
 	if body == "" {
@@ -73,6 +92,7 @@ cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
 		path.mkdirs(path.dir(cache))
 		path.write(cache, strings.concatenate({stamp, body}))
 	}
+	_ = cached
 	n := 0
 	for line in strings.split_lines(body) {
 		if strings.contains(line, ".md:") && !strings.has_prefix(line, "handoff:") {
@@ -120,14 +140,21 @@ repo_here :: proc(cli: ^Cli) -> (root, name: string) {
 	return start, path.base(start)
 }
 
-// build_pack selects and renders the pack. Bullets whose handle or alias is
-// the project come first, then the rest by score; each is one terse line
-// until the budget is spent. The pointers at the end are outside the budget:
-// two short lines that say where the longer state is.
-build_pack :: proc(db: sqlite3.Db, project, slug: string, budget: int) -> string {
+// Pack is what a project's briefing holds: its bullets in order, within the
+// budget, and where the longer state is.
+Pack :: struct {
+	hits:    []Hit,
+	handoff: string,
+	state:   int, // files in the project's state folder
+}
+
+// select_pack chooses the pack. Bullets whose handle or alias is the project
+// come first, then the rest by score; each is one terse line until the
+// budget is spent.
+select_pack :: proc(db: sqlite3.Db, project, slug: string, budget: int) -> (p: Pack) {
 	m, ok := build_match(db, project)
 	if !ok {
-		return ""
+		return
 	}
 	hits := query_fts(db, m.and, PACK_LIMIT)
 	if len(hits) == 0 {
@@ -145,31 +172,47 @@ build_pack :: proc(db: sqlite3.Db, project, slug: string, budget: int) -> string
 			append(&ordered, h)
 		}
 	}
-	b := strings.builder_make()
+	kept := make([dynamic]Hit)
 	written := 0
 	for h in ordered {
 		line := format_hit(h, .Terse)
 		if written + len(line) > budget {
 			break
 		}
-		strings.write_string(&b, line)
+		append(&kept, h)
 		written += len(line)
 	}
-	if written == 0 {
-		return ""
+	p.hits = kept[:]
+	if len(p.hits) == 0 {
+		return
 	}
-	head := strings.concatenate({"# brain pack ", project, ": what the vault knows; `brain find <terms>` for more\n"})
-	handoff := scalar_text(
+	p.handoff = scalar_text(
 		db,
 		"select file from docs where file like '%handoffs/%' and file like ? order by file desc limit 1",
 		strings.concatenate({"%", slug, "%"}),
 	)
-	if handoff != "" {
-		strings.write_string(&b, strings.concatenate({"handoff: ", handoff, "\n"}))
+	p.state = scalar_int(db, "select count(*) from docs where file like ?", strings.concatenate({slug, "/%"}))
+	return
+}
+
+// build_pack renders the pack as text: a header, one terse line per bullet,
+// then the pointers, which are outside the budget: two short lines that say
+// where the longer state is.
+build_pack :: proc(db: sqlite3.Db, project, slug: string, budget: int) -> string {
+	p := select_pack(db, project, slug, budget)
+	if len(p.hits) == 0 {
+		return ""
 	}
-	state := scalar_int(db, "select count(*) from docs where file like ?", strings.concatenate({slug, "/%"}))
-	if state > 0 {
-		strings.write_string(&b, strings.concatenate({"state: ", slug, "/ (", int_str(i64(state)), " files)\n"}))
+	b := strings.builder_make()
+	strings.write_string(&b, strings.concatenate({"# brain pack ", project, ": what the vault knows; `brain find <terms>` for more\n"}))
+	for h in p.hits {
+		strings.write_string(&b, format_hit(h, .Terse))
 	}
-	return strings.concatenate({head, strings.to_string(b)})
+	if p.handoff != "" {
+		strings.write_string(&b, strings.concatenate({"handoff: ", p.handoff, "\n"}))
+	}
+	if p.state > 0 {
+		strings.write_string(&b, strings.concatenate({"state: ", slug, "/ (", int_str(i64(p.state)), " files)\n"}))
+	}
+	return strings.to_string(b)
 }

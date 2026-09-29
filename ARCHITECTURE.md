@@ -67,7 +67,8 @@ file has no expansion.
 ## The index
 
 Markdown is canonical. The SQLite index (FTS5, linked in) is disposable:
-delete it at any time and `brain sync` rebuilds it. Nothing the CLI stores
+delete it at any time and `brain reindex` rebuilds it (`sync` still works as
+its old name, because installed hooks say it). Nothing the CLI stores
 is authoritative, so the vault stays readable, diffable and yours.
 
 `find` ranks handle matches above body matches, and equal scores fall to
@@ -88,6 +89,23 @@ aside those a later edit answered. `brain doctor` uses the same log to name
 bullets returned often enough that a gate or a project file should carry
 them. The misses `brain log` lists are the backlog for editing
 `synonyms.tsv`.
+
+## One voice, one JSON face
+
+Output speaks in outcomes: what the vault knows, what is waiting, what a
+lookup cost. Git and SQLite are named where a curious reader looks, in
+`--help` and here, not in the default output. Every command that reports
+state answers `--json` with one object on stdout, keys in a fixed order, so
+the desk and any script read the same thing a person does without scraping
+tables; `brain/json.odin` is the writer and `jw_rows` turns a query into an
+array of objects keyed by column name, which is how doctor, log and ledger
+get theirs. Under `--json` an error is `{"error": ...}` on stdout with a
+non-zero exit. install, uninstall, update and mcp do not speak JSON.
+
+`brain ledger` reads the find log back as cost: tokens returned per caller,
+session and day, and tokens saved against the alternative an agent has
+without an index, reading the three core files whole. Tokens are bytes over
+four, the README's estimate.
 
 ## Packs
 
