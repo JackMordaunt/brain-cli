@@ -26,7 +26,7 @@ import "jm:path"
 // environment and the recorded tool path both outrank it.
 BRAIN_TOOL :: #config(BRAIN_TOOL, "")
 
-SCHEMA          :: 4 // bump when a table changes shape; ensure_db then rebuilds
+SCHEMA          :: 5 // bump when a table changes shape; ensure_db then rebuilds
 MAXLEN          :: 400 // soft cap on a bullet's fact text
 STALE_DAYS      :: 90 // a fact older than this wants re-verification
 FIND_LIMIT      :: 8
@@ -261,7 +261,8 @@ Share
                              opencode, jules, junie, zed, warp), copilot, gemini, cursor, cline, kiro
   brain mcp                  the same tools over MCP on stdio, for agents without a shell
 Keep it healthy
-  brain doctor               what is stale, thin, oversized, duplicated or orphaned
+  brain doctor               what is stale, thin, oversized, duplicated or orphaned, and which
+                             notes a newer bullet may have superseded
   brain log                  what keeps missing, and who asks
   brain ledger [--days N]    what lookups cost and saved, by caller, session and day
   brain lint [--staged]      check bullet form; failures block a commit

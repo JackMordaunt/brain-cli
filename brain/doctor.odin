@@ -1,6 +1,8 @@
 package brain
 
 import "core:fmt"
+import "core:slice"
+import "core:strings"
 
 import "jm:sqlite3"
 
@@ -54,6 +56,105 @@ doctor_sections :: proc(nq: int) -> []Section {
 	return s[:]
 }
 
+// Older_Note is a dated note holding lines that name what a newer bullet
+// names: a plan or handoff written before the bullet settled the matter,
+// which an agent may quote over the bullet (tools/proof saw a plan's line
+// beat the bullet above it). A note is matched by a bullet's handle or
+// alias as a phrase of two or more words and ten or more characters, so a
+// common word does not flag every note in the vault, and a line that cites
+// the bullet by name is already deferring to it and is not counted. Lines
+// are grouped by file: the file is what a person marks or retires.
+Older_Note :: struct {
+	file, date: string,
+	lines:      int,
+	first:      i64, // the first flagged line
+	handles:    [dynamic]string,
+}
+
+older_notes :: proc(db: sqlite3.Db) -> []Older_Note {
+	order := make([dynamic]string)
+	by := make(map[string]^Older_Note)
+	seen := make(map[string]bool)
+	stmt, err := sqlite3.query(db, "select handle, aliases, date from bullets where file in " + CSV_CORE + " and date <> ''")
+	if err != nil {
+		return nil
+	}
+	defer sqlite3.finish(&stmt)
+	for sqlite3.next(&stmt) {
+		handle := strings.clone(sqlite3.text(stmt, 0))
+		aliases := strings.clone(sqlite3.text(stmt, 1))
+		date := strings.clone(sqlite3.text(stmt, 2))
+		cite := strings.concatenate({"**", handle, "**"})
+		terms := make([dynamic]string)
+		append(&terms, handle)
+		for a in strings.split(aliases, ",") {
+			append(&terms, a)
+		}
+		for t in terms {
+			toks := query_terms(t)
+			phrase := strings.join(toks, " ")
+			if len(toks) < 2 || len(phrase) < 10 {
+				continue
+			}
+			rows, rerr := sqlite3.query(
+				db,
+				`select l.file, l.line, d.date, l.text
+				 from lines_fts f join lines l on l.id = f.rowid join docs d on d.file = l.file
+				 where lines_fts match ? and d.date <> '' and d.date < ?
+				   and l.file not in ` + CSV_CORE + `
+				 order by l.file, l.line limit 40`,
+				quoted(phrase),
+				date,
+			)
+			if rerr != nil {
+				continue
+			}
+			for sqlite3.next(&rows) {
+				file := sqlite3.text(rows, 0)
+				line := sqlite3.integer(rows, 1)
+				if strings.contains(sqlite3.text(rows, 3), cite) {
+					continue
+				}
+				key := strings.concatenate({file, ":", int_str(line)})
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				n, has := by[file]
+				if !has {
+					n = new(Older_Note)
+					n.file = strings.clone(file)
+					n.date = strings.clone(sqlite3.text(rows, 2))
+					n.first = line
+					by[n.file] = n
+					append(&order, n.file)
+				}
+				n.lines += 1
+				if line < n.first {
+					n.first = line
+				}
+				known := false
+				for h in n.handles {
+					if h == handle {
+						known = true
+					}
+				}
+				if !known {
+					append(&n.handles, handle)
+				}
+			}
+			sqlite3.finish(&rows)
+		}
+	}
+	out := make([dynamic]Older_Note)
+	for f in order {
+		append(&out, by[f]^)
+	}
+	// The heaviest file first: the one an agent is likeliest to quote.
+	slice.sort_by(out[:], proc(a, b: Older_Note) -> bool {return a.lines > b.lines})
+	return out[:]
+}
+
 cmd_doctor :: proc(cli: ^Cli, args: []string) -> int {
 	if err := ensure_db(cli); err != "" {
 		return fail(cli, err)
@@ -65,6 +166,7 @@ cmd_doctor :: proc(cli: ^Cli, args: []string) -> int {
 	defer sqlite3.close(&db)
 	nq := scalar_int(db, "select count(*) from queries")
 	sections := doctor_sections(nq)
+	older := older_notes(db)
 	if cli.json {
 		w := jw_make()
 		jw_obj(&w)
@@ -77,6 +179,23 @@ cmd_doctor :: proc(cli: ^Cli, args: []string) -> int {
 				jw_rows(&w, db, s.sql)
 			}
 		}
+		jw_key(&w, "older_notes")
+		jw_arr(&w)
+		for o in older {
+			jw_obj(&w)
+			jw_field(&w, "file", o.file)
+			jw_field(&w, "date", o.date)
+			jw_field_int(&w, "lines", i64(o.lines))
+			jw_field_int(&w, "first_line", o.first)
+			jw_key(&w, "handles")
+			jw_arr(&w)
+			for h in o.handles {
+				jw_str(&w, h)
+			}
+			jw_end_arr(&w)
+			jw_end_obj(&w)
+		}
+		jw_end_arr(&w)
 		jw_end_obj(&w)
 		jw_flush(cli, &w)
 		return 0
@@ -92,6 +211,10 @@ cmd_doctor :: proc(cli: ^Cli, args: []string) -> int {
 			outf(cli, "\n== never returned by any query (prune candidates, from %d queries) ==\n", nq)
 			out(cli, "   too few queries logged to mean anything yet — this needs months of real use\n")
 		}
+	}
+	out(cli, "\n== older notes that name what a newer bullet names: an agent may quote them over the bullet; mark or retire them ==\n")
+	for o in older {
+		outf(cli, "%s (%s): %d line(s) from :%d name **%s**\n", o.file, o.date, o.lines, o.first, strings.join(o.handles[:], "**, **"))
 	}
 	return 0
 }

@@ -45,6 +45,7 @@ Line :: struct {
 Scan :: struct {
 	file:    string,
 	title:   string, // the first `# ` heading in the first 20 lines
+	date:    string, // the YYYY-MM-DD in the file's name, if it has one
 	bullets: [dynamic]Bullet,
 	links:   [dynamic]Link,
 	lines:   [dynamic]Line,
@@ -112,6 +113,7 @@ scan_file :: proc(vault, rel: string) -> (s: Scan, err: os.Error) {
 // line is dropped, so a vault checked out with CRLF parses the same.
 scan_text :: proc(rel, text: string) -> (s: Scan) {
 	s.file = rel
+	s.date = name_date(path.base(rel))
 	section := ""
 	rest := text
 	n := 0
@@ -188,6 +190,17 @@ between :: proc(s, open, close: string) -> (string, bool) {
 		return "", false
 	}
 	return rest[:j], true
+}
+
+// name_date is the first YYYY-MM-DD in a file name, the vault's convention
+// for handoffs, plans and reports, or "" when there is none.
+name_date :: proc(name: string) -> string {
+	for i in 0 ..< len(name) {
+		if i + 10 <= len(name) && is_iso_date(name[i:i + 10]) {
+			return name[i:i + 10]
+		}
+	}
+	return ""
 }
 
 // is_iso_date matches YYYY-MM-DD exactly.

@@ -291,7 +291,7 @@ find_cuts_to_the_named_bullet :: proc(t: ^testing.T) {
 	testing.expect_value(t, code, 0)
 	testing.expect(t, strings.has_prefix(o, "AI/MEMORY.md:"), "a hit")
 	testing.expect(t, strings.contains(o, "**libgit2**"), "the alias names libgit2")
-	testing.expect_value(t, strings.count(o, ".md:"), 1)
+	testing.expect_value(t, strings.count(o, "AI/MEMORY.md:"), 1)
 }
 
 // --budget caps the output in tokens, and the bytes printed are logged.

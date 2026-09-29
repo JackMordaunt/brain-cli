@@ -89,7 +89,15 @@ environment; any other agent sets `BRAIN_CALLER` and `BRAIN_SESSION` so
 item only while it still misses: `brain log` re-runs each one and sets
 aside those a later edit answered. `brain doctor` uses the same log to name
 bullets returned often enough that a gate or a project file should carry
-them. The misses `brain log` lists are the backlog for editing
+them. Doctor also lists older notes that name what a newer bullet names,
+by file, heaviest first: a plan or handoff written before the bullet
+settled the matter, which an agent may quote over the bullet (on the
+proof, a plan's line about an install alias that was never built beat the
+bullet saying so on every capable model). A note is matched by a bullet's
+handle or alias as a phrase of two or more words and ten or more
+characters, and a line that cites the bullet by name is not counted. Files
+carry the date in their name, the vault's convention for handoffs, plans
+and reports, and the index records it. The misses `brain log` lists are the backlog for editing
 `synonyms.tsv`.
 
 ## The proof

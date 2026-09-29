@@ -101,7 +101,7 @@ create table bullets(
   handle text, aliases text, fact text, source text, date text,
   raw text, len integer);
 create table links(file text, line integer, target text);
-create table docs(file text primary key, title text);
+create table docs(file text primary key, title text, date text);
 create virtual table bullets_fts using fts5(handle, aliases, fact);
 create table lines(id integer primary key, file text, line integer, text text);
 create virtual table lines_fts using fts5(text);
@@ -175,7 +175,7 @@ build_index :: proc(cli: ^Cli, db: sqlite3.Db, files: []string) -> string {
 	)
 	ins_link, e2 := sqlite3.prepare(db, "insert into links(file,line,target) values(?,?,?)")
 	ins_line, e3 := sqlite3.prepare(db, "insert into lines(file,line,text) values(?,?,?)")
-	ins_doc, e4 := sqlite3.prepare(db, "insert into docs(file,title) values(?,?)")
+	ins_doc, e4 := sqlite3.prepare(db, "insert into docs(file,title,date) values(?,?,?)")
 	if e1 != nil || e2 != nil || e3 != nil || e4 != nil {
 		return "cannot prepare the index statements"
 	}
@@ -204,7 +204,7 @@ build_index :: proc(cli: ^Cli, db: sqlite3.Db, files: []string) -> string {
 				return e
 			}
 		}
-		if e := step(&ins_doc, s.file, s.title); e != "" {
+		if e := step(&ins_doc, s.file, s.title, s.date); e != "" {
 			return e
 		}
 	}
