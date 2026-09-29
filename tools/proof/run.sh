@@ -9,6 +9,7 @@
 #   tools/proof/run.sh                # every question, every condition, once, on sonnet
 #   REPEATS=3 MODELS="haiku sonnet opus fable" CONDITIONS="plain brain" tools/proof/run.sh
 #   CONDITIONS="brain brain-notes brain-source brain-both" tools/proof/run.sh   # find's knobs
+#   CONDITIONS="brain-open" tools/proof/run.sh   # brain, and the agent may open a note find names
 #
 # Needs: claude (logged in), python3, a built build/release/brain, and a
 # vault (VAULT=<path>, else `brain locate`). Writes build/proof/<stamp>/:
@@ -48,6 +49,12 @@ MD
 cat > "$work/brain/CLAUDE.md" <<'MD'
 The Brain is this machine's shared agent memory. `brain locate` prints its path, `brain find <terms>` searches it, and `brain recall <terms>` searches what was said in past agent conversations. Ask brain before answering, and prefer what it says to what you assume. Do not read the vault's files directly.
 MD
+# brain-open: the block `brain install` writes, which forbids nothing; the
+# agent may open a note that find points at.
+mkdir -p "$work/brain-open"
+cat > "$work/brain-open/CLAUDE.md" <<'MD'
+The Brain is this machine's shared agent memory. `brain locate` prints its path, `brain find <terms>` searches it, and `brain recall <terms>` searches what was said in past agent conversations. Ask brain before answering, and prefer what it says to what you assume. When find points at a line in a longer note, open that note.
+MD
 
 tools=(Read Grep Glob 'Bash(brain:*)' 'Bash(grep:*)' 'Bash(rg:*)' 'Bash(cat:*)' 'Bash(ls:*)' 'Bash(find:*)' 'Bash(head:*)' 'Bash(tail:*)' 'Bash(sed:*)' 'Bash(wc:*)')
 n=0
@@ -66,6 +73,7 @@ for r in $(seq 1 "$repeats"); do
       with_source=""
       case "$c" in
         brain) path="$work/bin:$path" ;;
+        brain-open) path="$work/bin:$path" ;;
         brain-notes) dir=brain; path="$work/bin:$path"; notes=short ;;
         brain-source) dir=brain; path="$work/bin:$path"; with_source=source ;;
         brain-both) dir=brain; path="$work/bin:$path"; notes=short; with_source=source ;;
