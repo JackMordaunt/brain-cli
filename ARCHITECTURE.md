@@ -70,8 +70,17 @@ Markdown is canonical. The SQLite index (FTS5, linked in) is disposable:
 delete it at any time and `brain sync` rebuilds it. Nothing the CLI stores
 is authoritative, so the vault stays readable, diffable and yours.
 
-`find` ranks handle matches above body matches. Every `find` is logged with
-its entry count and its caller. Claude Code is recognised from its own
+`find` ranks handle matches above body matches, and equal scores fall to
+the newer bullet. A term of three or more characters also matches as a
+prefix of a handle or alias, so `libgit` reaches `libgit2`; prose keeps
+exact terms. A query that is a bullet's handle or alias outright returns
+that bullet first with only its near ties (`EXACT_RATIO`), not the full
+`FIND_LIMIT`. An agent, recognised by its caller, gets one line per hit:
+locator, handle, fact, date; `--raw` restores the line as written and
+`--terse` asks a terminal for the short form. `--budget <tokens>` replaces
+the default byte cap for one call. Every `find` is logged with its entry
+count, its caller and the bytes it printed, which is the per-session cost a
+ledger reads back. Claude Code is recognised from its own
 environment; any other agent sets `BRAIN_CALLER` and `BRAIN_SESSION` so
 `brain log` can say who asks and how often. A zero-hit query is a backlog
 item only while it still misses: `brain log` re-runs each one and sets

@@ -25,7 +25,7 @@ import "jm:path"
 // environment and the recorded tool path both outrank it.
 BRAIN_TOOL :: #config(BRAIN_TOOL, "")
 
-SCHEMA          :: 2 // bump when a table changes shape; ensure_db then rebuilds
+SCHEMA          :: 3 // bump when a table changes shape; ensure_db then rebuilds
 MAXLEN          :: 400 // soft cap on a bullet's fact text
 STALE_DAYS      :: 90 // a fact older than this wants re-verification
 FIND_LIMIT      :: 8
@@ -205,6 +205,7 @@ USAGE :: `brain — query and lint the vault. Markdown is canonical; the index i
   brain locate [--native] absolute path to the vault, for agents and scripts
   brain locate --tool     absolute path to this CLI's own checkout
   brain find <terms...>   search bullets, handle matches ranked first
+    --budget N (tokens, default 1000)  --raw|--terse (agents get terse: no aliases or source)
   brain recall <terms...> search agent transcripts: what was said, not what is true
     --sync --sources --enable <a> --disable <a> --full <id> --limit N --json
     --sessions (one row per conversation)  --prefix (last term matches as a prefix)

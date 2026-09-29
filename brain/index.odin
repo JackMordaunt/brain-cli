@@ -98,7 +98,7 @@ create table lines(id integer primary key, file text, line integer, text text);
 create virtual table lines_fts using fts5(text);
 create table synonyms(term text, expansion text);
 create table queries(id integer primary key, ts text, q text, hits integer,
-  caller text, session text);
+  caller text, session text, bytes integer);
 create table query_hits(query_id integer, file text, handle text, rank integer);
 `
 

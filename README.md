@@ -64,25 +64,29 @@ What a bare folder does not give an agent, brain layers on top:
 
 ## What a search costs
 
-Measured on a working vault of 88 files, 504 KB. The grep columns search
-for the query's first word, the way an agent without an index would start.
-Tokens are bytes over four.
+Measured on a working vault of 105 files, 705 KB, as an agent sees it: one
+line per hit with the handle, the fact and the date, since the aliases and
+source only cost context. A terminal gets the line as written. The grep
+columns search for the query's first word, the way an agent without an
+index would start. Tokens are bytes over four.
 
 | query | `brain find` | `grep -ri` over `AI/*.md` | `grep -ri` over the vault |
 |-------|-------------:|--------------------------:|--------------------------:|
-| `hyprland window rule` | 1.8 KB, ~460 tokens | 4.1 KB | 7.3 KB |
-| `jm hot-watch` | 0.7 KB, ~180 tokens | 19.0 KB | 43.4 KB |
-| `sqlite fts5` | 1.6 KB, ~400 tokens | 5.9 KB | 16.6 KB |
-| `brain-cli` | 4.4 KB, ~1,100 tokens | 8.9 KB | 11.4 KB |
+| `hyprland window rule` | 1.5 KB, ~380 tokens | 4.3 KB | 7.9 KB |
+| `jm hot-watch` | 0.8 KB, ~200 tokens | 21.6 KB | 59.7 KB |
+| `sqlite fts5` | 1.3 KB, ~340 tokens | 6.3 KB | 19.9 KB |
+| `brain-cli` | 3.6 KB, ~900 tokens | 9.9 KB | 16.0 KB |
 
-Reading the three core files instead costs 57.6 KB, about 14,000 tokens,
-per lookup. The whole vault is about 126,000 tokens. `brain recall` keeps
+A query that names a bullet's handle outright returns that bullet and its
+near ties, not eight neighbours, and `--budget <tokens>` caps any answer.
+Reading the three core files instead costs 60.3 KB, about 15,000 tokens,
+per lookup. The whole vault is about 176,000 tokens. `brain recall` keeps
 the same shape: five snippets for `hyprctl eval` came to 0.9 KB.
 
 ## Use
 
 ```
-brain find <terms...>     search the vault
+brain find <terms...>     search the vault; --budget <tokens> caps the answer
 brain recall <terms...>   search past agent conversations
 brain locate              print the vault's path
 brain sync                rebuild the index

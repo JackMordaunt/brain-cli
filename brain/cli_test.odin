@@ -93,7 +93,7 @@ sync_indexes_the_fixture :: proc(t: ^testing.T) {
 	o, e, code := exec(f.cli, "sync")
 	testing.expect_value(t, code, 0)
 	testing.expect_value(t, e, "")
-	testing.expect_value(t, o, "indexed 4 bullets, 0 links, 4 files\n")
+	testing.expect_value(t, o, "indexed 5 bullets, 0 links, 4 files\n")
 }
 
 @(test)
@@ -235,4 +235,77 @@ find_reads_a_crlf_vault :: proc(t: ^testing.T) {
 	o, _, code := exec(f.cli, "find", "sqlite")
 	testing.expect_value(t, code, 0)
 	testing.expect(t, strings.contains(o, "**sqlite**"), "find on a CRLF vault")
+}
+
+// A term of three or more characters also matches the start of a handle or
+// alias, so a stem or a typo's tail still lands. Prose keeps exact terms.
+@(test)
+find_matches_a_handle_by_prefix :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "find", "libgi")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "**libgit2**"), "libgi reaches libgit2")
+	_, _, code = exec(f.cli, "find", "li")
+	testing.expect_value(t, code, 1)
+}
+
+// An agent gets one line per hit without the aliases or the source; --raw
+// brings the line as written back, and a terminal gets it by default.
+@(test)
+find_prints_terse_for_an_agent :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, _ := exec(f.cli, "find", "sqlite")
+	testing.expect(t, strings.contains(o, "(aliases:"), "a terminal sees the aliases")
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	o, _, _ = exec(f.cli, "find", "sqlite")
+	testing.expect(t, !strings.contains(o, "(aliases:"), "an agent does not")
+	testing.expect(t, !strings.contains(o, "— fixture —"), "nor the source")
+	testing.expect(t, strings.has_prefix(o, "AI/MEMORY.md:"), "the locator leads the line")
+	testing.expect(t, strings.contains(o, " **sqlite** — the index is SQLite"), "handle then fact")
+	testing.expect(t, strings.contains(o, "— 2026-01-01\n"), "the date closes it")
+	o, _, _ = exec(f.cli, "find", "sqlite", "--raw")
+	testing.expect(t, strings.contains(o, "(aliases:"), "--raw restores the line")
+	delete_key(&f.cli.env, "BRAIN_CALLER")
+	o, _, _ = exec(f.cli, "find", "sqlite", "--terse")
+	testing.expect(t, !strings.contains(o, "(aliases:"), "--terse asks for the short form")
+}
+
+// A query that is a bullet's handle or alias returns that bullet and only
+// its near ties, in front.
+@(test)
+find_cuts_to_the_named_bullet :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "find", "jm:git")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "AI/MEMORY.md:"), "a hit")
+	testing.expect(t, strings.contains(o, "**libgit2**"), "the alias names libgit2")
+	testing.expect_value(t, strings.count(o, ".md:"), 1)
+}
+
+// --budget caps the output in tokens, and the bytes printed are logged.
+@(test)
+find_honours_a_budget_and_logs_bytes :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "find", "fixture", "--budget", "10")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "output capped"), "a tiny budget caps")
+	e: string
+	_, e, code = exec(f.cli, "find", "fixture", "--budget", "x")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "--budget <tokens>"), "a bad budget says so")
+	o, _, code = exec(f.cli, "find", "fixture")
+	testing.expect_value(t, code, 0)
+	db, err := open_db(f.cli.db)
+	testing.expect_value(t, err, "")
+	defer sqlite3.close(&db)
+	got := scalar_text(db, "select bytes from queries order by id desc limit 1")
+	testing.expect_value(t, got, int_str(i64(len(o))))
 }

@@ -29,8 +29,8 @@ cmd_log :: proc(cli: ^Cli, args: []string) -> int {
 		}
 		if len(query_fts(db, m.and)) > 0 ||
 		   len(query_fts(db, m.or)) > 0 ||
-		   len(query_lines(db, m.and)) > 0 ||
-		   len(query_lines(db, m.or)) > 0 {
+		   len(query_lines(db, m.prose_and)) > 0 ||
+		   len(query_lines(db, m.prose_or)) > 0 {
 			append(&answered, q)
 		}
 	}
@@ -58,12 +58,13 @@ cmd_log :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	out(cli, "\n== recent queries ==\n")
 	print_box(cli, db, "select ts, q as query, hits, caller from queries order by ts desc limit 15")
-	out(cli, "\n== who asks: queries and distinct sessions per caller ==\n")
+	out(cli, "\n== who asks: queries, sessions and bytes returned per caller ==\n")
 	print_box(
 		cli,
 		db,
 		`select coalesce(nullif(caller,''),'?') as caller, count(*) as queries,
-		   count(distinct nullif(session,'')) as sessions, sum(hits=0) as misses
+		   count(distinct nullif(session,'')) as sessions, sum(hits=0) as misses,
+		   sum(coalesce(bytes,0)) as bytes
 		 from queries group by 1 order by 2 desc`,
 	)
 	return 0
