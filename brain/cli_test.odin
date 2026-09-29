@@ -309,3 +309,48 @@ find_honours_a_budget_and_logs_bytes :: proc(t: ^testing.T) {
 	got := scalar_text(db, "select bytes from queries order by id desc limit 1")
 	testing.expect_value(t, got, int_str(i64(len(o))))
 }
+
+// A pack leads with the bullets that name the project, points at its newest
+// handoff, is served from the cache until the vault changes, and is logged
+// with its bytes like a find.
+@(test)
+pack_briefs_a_project_and_caches_it :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "pack", "fixture")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "AI/MEMORY.md:"), "a terse bullet line leads")
+	testing.expect(t, strings.contains(o, " **fixture tool** — "), "the alias names fixture tool")
+	testing.expect(t, !strings.contains(o, "(aliases:"), "terse")
+	testing.expect(t, strings.contains(o, "handoff: AI/handoffs/2026-01-01-fixture.md\n"), "the newest handoff is named")
+	cache := path.join(f.state, "packs", "fixture-1500.txt")
+	testing.expect(t, os.is_file(cache), "the pack is cached")
+	db, err := open_db(f.cli.db)
+	testing.expect_value(t, err, "")
+	got := scalar_text(db, "select q || ' ' || bytes from queries order by id desc limit 1")
+	sqlite3.close(&db)
+	testing.expect_value(t, got, strings.concatenate({"pack fixture ", int_str(i64(len(o)))}))
+
+	// A cache carrying the index's build stamp is served as it is; a sync
+	// writes a new stamp and the next pack is built again.
+	db, err = open_db(f.cli.db)
+	testing.expect_value(t, err, "")
+	built := scalar_text(db, "select value from meta where key='built'")
+	sqlite3.close(&db)
+	planted := "AI/MEMORY.md:1 **planted** — a line only the cache holds — 2026-01-01\n"
+	testing.expect_value(t, path.write(cache, strings.concatenate({"built ", built, "\n", planted})), nil)
+	o2, _, _ := exec(f.cli, "pack", "fixture")
+	testing.expect_value(t, o2, planted)
+	testing.expect_value(t, path.append_file(path.join(f.vault, "AI", "MEMORY.md"), "- **fixture pack** (aliases: fixture) — a bullet added after the pack was cached — fixture — 2026-01-03\n"), nil)
+	_, _, code = exec(f.cli, "sync")
+	testing.expect_value(t, code, 0)
+	o3, _, _ := exec(f.cli, "pack", "fixture")
+	testing.expect(t, strings.contains(o3, "**fixture pack**"), "a sync invalidates the cache")
+
+	o, _, code = exec(f.cli, "pack", "fixture", "--budget", "1")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.has_prefix(o, "no bullets for: fixture"), "a budget too small for one line says so")
+	_, _, code = exec(f.cli, "pack", "zzzznope")
+	testing.expect_value(t, code, 1)
+}

@@ -100,6 +100,7 @@ create table synonyms(term text, expansion text);
 create table queries(id integer primary key, ts text, q text, hits integer,
   caller text, session text, bytes integer);
 create table query_hits(query_id integer, file text, handle text, rank integer);
+create table meta(key text primary key, value text);
 `
 
 // sync rebuilds the index from the markdown into a fresh file and swaps it
@@ -222,8 +223,11 @@ build_index :: proc(cli: ^Cli, db: sqlite3.Db, files: []string) -> string {
 			}
 		}
 	}
+	// The build stamp names this index: a pack cached against it is served
+	// until the next sync, whatever the files' clocks say.
 	if e := sqlite3.exec(db, `insert into bullets_fts(rowid,handle,aliases,fact) select id,handle,aliases,fact from bullets;
 		insert into lines_fts(rowid,text) select id,text from lines;
+		insert into meta(key,value) values('built', strftime('%Y-%m-%dT%H:%M:%fZ','now') || ' ' || (select count(*) from bullets) || ' ' || (select count(*) from lines));
 		commit;`); e != nil {
 		return sql_err(e)
 	}

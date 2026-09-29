@@ -96,9 +96,9 @@ Hit :: struct {
 	score:   f64,
 }
 
-// query_fts returns the best bullets for a match string, up to FIND_LIMIT.
+// query_fts returns the best bullets for a match string, up to limit.
 // Equal scores fall to the newer bullet.
-query_fts :: proc(db: sqlite3.Db, match: string) -> []Hit {
+query_fts :: proc(db: sqlite3.Db, match: string, limit := FIND_LIMIT) -> []Hit {
 	hits := make([dynamic]Hit)
 	stmt, err := sqlite3.query(
 		db,
@@ -109,7 +109,7 @@ query_fts :: proc(db: sqlite3.Db, match: string) -> []Hit {
 		 order by score, b.date desc
 		 limit ?`,
 		match,
-		i64(FIND_LIMIT),
+		i64(limit),
 	)
 	if err != nil {
 		return nil
