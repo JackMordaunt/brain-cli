@@ -208,7 +208,7 @@ USAGE :: `brain — query and lint the vault. Markdown is canonical; the index i
   brain locate --tool     absolute path to this CLI's own checkout
   brain find <terms...>   search bullets, handle matches ranked first
     --budget N (tokens, default 1000)  --raw|--terse (agents get terse: no aliases or source)
-  brain pack <project>    the briefing to open a project with: its bullets, terse, within
+  brain pack [<project>]  the briefing to open a project with (default: the repo you are in): its bullets, terse, within
     --budget N (default 1500) and cached until the vault changes; --fresh rebuilds it
   brain recall <terms...> search agent transcripts: what was said, not what is true
     --sync --sources --enable <a> --disable <a> --full <id> --limit N --json

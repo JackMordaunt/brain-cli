@@ -91,16 +91,26 @@ them. The misses `brain log` lists are the backlog for editing
 
 ## Packs
 
-`brain pack <project>` is the briefing an agent opens a project with: the
+`brain pack [<project>]` is the briefing an agent opens a project with: the
 bullets that name or mention it, terse, within `--budget` tokens (1500 by
 default), then one line naming the project's newest handoff and one
-counting the files in its state folder. It exists so a session hook can
+counting the files in its state folder. With no project named it takes the
+repository the caller is in, the nearest `.git` above the working
+directory, so a session hook needs no argument. It exists so a session hook can
 put what the vault knows about a repository at the start of context, where
 a host's prompt cache can hold it, instead of the agent rediscovering it
 three lookups at a time. The pack is cached under the state directory
 against the index's build stamp (`meta.built`, written on every sync), so
 serving it costs nothing until the vault changes; `--fresh` rebuilds it.
 Each serve is logged as a query with its bytes.
+
+`brain install` registers `brain pack` as a Claude Code SessionStart hook
+in `~/.claude/settings.json`, for a session's start, `/clear` and
+compaction, beside whatever hooks are there. A miss prints nothing, so a
+repository the vault knows nothing about costs no error. The hook is
+recognised by its command: a second install adds nothing and `brain
+uninstall` removes only it. A settings file that does not parse is left
+alone and named, since a bad write there would take every hook with it.
 
 ## Recall
 

@@ -320,7 +320,8 @@ pack_briefs_a_project_and_caches_it :: proc(t: ^testing.T) {
 	defer fixture_destroy(f)
 	o, _, code := exec(f.cli, "pack", "fixture")
 	testing.expect_value(t, code, 0)
-	testing.expect(t, strings.has_prefix(o, "AI/MEMORY.md:"), "a terse bullet line leads")
+	testing.expect(t, strings.has_prefix(o, "# brain pack fixture: "), "a header says what this is")
+	testing.expect(t, strings.contains(o, "\nAI/MEMORY.md:"), "then a terse bullet line")
 	testing.expect(t, strings.contains(o, " **fixture tool** — "), "the alias names fixture tool")
 	testing.expect(t, !strings.contains(o, "(aliases:"), "terse")
 	testing.expect(t, strings.contains(o, "handoff: AI/handoffs/2026-01-01-fixture.md\n"), "the newest handoff is named")
@@ -348,9 +349,38 @@ pack_briefs_a_project_and_caches_it :: proc(t: ^testing.T) {
 	o3, _, _ := exec(f.cli, "pack", "fixture")
 	testing.expect(t, strings.contains(o3, "**fixture pack**"), "a sync invalidates the cache")
 
-	o, _, code = exec(f.cli, "pack", "fixture", "--budget", "1")
+	e: string
+	o, e, code = exec(f.cli, "pack", "fixture", "--budget", "1")
 	testing.expect_value(t, code, 1)
-	testing.expect(t, strings.has_prefix(o, "no bullets for: fixture"), "a budget too small for one line says so")
+	testing.expect_value(t, o, "")
+	testing.expect(t, strings.has_prefix(e, "no bullets for: fixture"), "a budget too small for one line says so, on stderr")
 	_, _, code = exec(f.cli, "pack", "zzzznope")
 	testing.expect_value(t, code, 1)
+}
+
+// With no project named, pack takes the repository the caller is in: the
+// nearest .git above the working directory.
+@(test)
+pack_infers_the_project_from_the_working_directory :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	repo := path.join(f.root, "sqlite")
+	testing.expect_value(t, path.mkdirs(path.join(repo, ".git")), nil)
+	testing.expect_value(t, path.mkdirs(path.join(repo, "src", "deep")), nil)
+	f.cli.env["PWD"] = path.join(repo, "src", "deep")
+	o, _, code := exec(f.cli, "pack")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "# brain pack sqlite: "), "a pack for the repo")
+	testing.expect(t, strings.contains(o, " **sqlite** — "), "named after the repo")
+	db, err := open_db(f.cli.db)
+	testing.expect_value(t, err, "")
+	defer sqlite3.close(&db)
+	testing.expect_value(t, scalar_text(db, "select q from queries order by id desc limit 1"), "pack sqlite")
+	// No .git above: the working directory's own name.
+	f.cli.env["PWD"] = path.join(f.root, "fixture")
+	testing.expect_value(t, path.mkdirs(path.join(f.root, "fixture")), nil)
+	_, _, code = exec(f.cli, "pack")
+	testing.expect_value(t, code, 0)
+	testing.expect_value(t, scalar_text(db, "select q from queries order by id desc limit 1"), "pack fixture")
 }

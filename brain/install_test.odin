@@ -192,3 +192,59 @@ install_creates_the_canonical_vault_when_none_is_named :: proc(t: ^testing.T) {
 	testing.expect_value(t, code, 1)
 	testing.expect(t, strings.contains(e, "no such directory"), e)
 }
+
+// The installer registers `brain pack` as a Claude Code SessionStart hook in
+// the user's settings, beside what is there, once; uninstall removes only it.
+@(test)
+install_registers_the_pack_hook_beside_existing_settings :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	settings := path.join(f.home, ".claude", "settings.json")
+	testing.expect_value(t, path.mkdirs(path.dir(settings)), nil)
+	existing := `{"theme": "dark", "hooks": {"SessionStart": [{"hooks": [{"type": "command", "command": "echo hi"}]}], "Stop": []}}`
+	testing.expect_value(t, path.write(settings, existing), nil)
+	cwd, _ := os.get_working_directory(context.allocator)
+	f.cli.env["BRAIN_EXE"] = path.join(cwd, "build", "debug", strings.concatenate({"brain", EXE}))
+	git(t, f.vault, "init", "-q")
+	o, _, code := exec(f.cli, "install", f.vault)
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "SessionStart hook added"), o)
+	text, _ := path.read(settings)
+	testing.expect(t, strings.contains(text, `"theme": "dark"`), "other settings survive")
+	testing.expect(t, strings.contains(text, `"command": "echo hi"`), "other hooks survive")
+	testing.expect(t, strings.contains(text, `pack 2>/dev/null || true"`), "the pack hook is there")
+	testing.expect(t, strings.contains(text, `"matcher": "startup|clear|compact"`), "with its matcher")
+	testing.expect_value(t, strings.count(text, "pack 2>/dev/null"), 1)
+	o, _, code = exec(f.cli, "install", f.vault)
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "SessionStart hook present"), o)
+	text, _ = path.read(settings)
+	testing.expect_value(t, strings.count(text, "pack 2>/dev/null"), 1)
+	o, _, code = exec(f.cli, "uninstall")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "SessionStart hook removed"), o)
+	text, _ = path.read(settings)
+	testing.expect_value(t, strings.count(text, "pack 2>/dev/null"), 0)
+	testing.expect(t, strings.contains(text, `"command": "echo hi"`), "the other hook is still there")
+	testing.expect(t, strings.contains(text, `"Stop"`), "and the other event")
+}
+
+// A settings file that does not parse is left alone and named.
+@(test)
+install_leaves_a_broken_settings_file_alone :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	settings := path.join(f.home, ".claude", "settings.json")
+	testing.expect_value(t, path.mkdirs(path.dir(settings)), nil)
+	testing.expect_value(t, path.write(settings, "{ not json"), nil)
+	cwd, _ := os.get_working_directory(context.allocator)
+	f.cli.env["BRAIN_EXE"] = path.join(cwd, "build", "debug", strings.concatenate({"brain", EXE}))
+	git(t, f.vault, "init", "-q")
+	o, _, code := exec(f.cli, "install", f.vault)
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "does not parse"), o)
+	text, _ := path.read(settings)
+	testing.expect_value(t, text, "{ not json")
+}

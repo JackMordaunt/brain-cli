@@ -1,5 +1,6 @@
 package brain
 
+import "core:os"
 import "core:strconv"
 import "core:strings"
 
@@ -46,7 +47,7 @@ cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
 		}
 	}
 	if len(terms) == 0 {
-		return fail(cli, "usage: brain pack <project> [--budget <tokens>] [--fresh]")
+		append(&terms, project_here(cli))
 	}
 	db, oerr := open_db(cli.db)
 	if oerr != "" {
@@ -87,11 +88,35 @@ cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
 		i64(len(body)),
 	)
 	if n == 0 {
-		outf(cli, "no bullets for: %s\n", project)
+		errf(cli, "no bullets for: %s\n", project)
 		return 1
 	}
 	out(cli, body)
 	return 0
+}
+
+// project_here names the repository the caller is in: the basename of the
+// nearest directory, from the working directory up, that holds a .git, else
+// the working directory's own. PWD is read first so a hook, or a test, can
+// say where it is.
+project_here :: proc(cli: ^Cli) -> string {
+	cwd := getenv(cli, "PWD")
+	if cwd == "" {
+		cwd, _ = os.get_working_directory(context.allocator)
+	}
+	start, _ := path.clean(cwd)
+	d := start
+	for {
+		if os.exists(path.join(d, ".git")) {
+			return path.base(d)
+		}
+		parent := path.dir(d)
+		if parent == d || parent == "" {
+			break
+		}
+		d = parent
+	}
+	return path.base(start)
 }
 
 // build_pack selects and renders the pack. Bullets whose handle or alias is
@@ -132,6 +157,7 @@ build_pack :: proc(db: sqlite3.Db, project, slug: string, budget: int) -> string
 	if written == 0 {
 		return ""
 	}
+	head := strings.concatenate({"# brain pack ", project, ": what the vault knows; `brain find <terms>` for more\n"})
 	handoff := scalar_text(
 		db,
 		"select file from docs where file like '%handoffs/%' and file like ? order by file desc limit 1",
@@ -144,5 +170,5 @@ build_pack :: proc(db: sqlite3.Db, project, slug: string, budget: int) -> string
 	if state > 0 {
 		strings.write_string(&b, strings.concatenate({"state: ", slug, "/ (", int_str(i64(state)), " files)\n"}))
 	}
-	return strings.to_string(b)
+	return strings.concatenate({head, strings.to_string(b)})
 }
