@@ -12,9 +12,9 @@ tail -n +2 "$questions" | while IFS=$'\t' read -r id _ expected kind; do
     [ -f "$raw" ] || continue
     name=$(basename "$raw" .json)          # <model>-<condition>-<id>-<repeat>
     rep=${name##*-}
-    prefix=${name%-"$id"-*}                  # <model>-<condition>
-    cond=${prefix##*-}
-    model=${prefix%-"$cond"}
+    prefix=${name%-"$id"-*}                  # <model>-<condition>; a model alias has no dash, a condition may
+    model=${prefix%%-*}
+    cond=${prefix#*-}
     python3 "$here/record.py" "$cond" "$id" "$rep" "$expected" "$raw" "$model" "${kind:-bullet}" >> "$out/runs.jsonl"
   done
 done
