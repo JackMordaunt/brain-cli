@@ -19,7 +19,14 @@ root  := replace(justfile_directory(), "\\", "/")
 # The jm collection: https://mordaunt.dev/code/jm, pinned as the jm
 # submodule. JM=<path> builds against another checkout instead.
 jm    := env("JM", root / "jm")
-flags := "-vet -strict-style -collection:jm=" + jm + " -define:BRAIN_TOOL=" + root
+# The commit a binary is built from, with -dirty when the tree has
+# uncommitted changes, so `brain version` can say which code it is. The
+# value is quoted for odin, since a hash like 21e17ac would otherwise be
+# read as a number.
+commit := `git rev-parse --short HEAD 2>/dev/null || echo unknown`
+dirty  := `git status --porcelain 2>/dev/null | head -c 1`
+stamp  := commit + (if dirty != "" { "-dirty" } else { "" })
+flags := "-vet -strict-style -collection:jm=" + jm + " -define:BRAIN_TOOL=" + root + " -define:COMMIT='\"" + stamp + "\"'"
 # The same without BRAIN_TOOL, which only the CLI reads: tools/logo would warn.
 uiflags := "-vet -strict-style -collection:jm=" + jm
 # `just build SAN=` drops the sanitizer when a library gets in its way.

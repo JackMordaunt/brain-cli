@@ -94,6 +94,7 @@ jobs:
           version=""
           case "$GITHUB_REF" in refs/tags/*) version="-define:VERSION=$GITHUB_REF_NAME" ;; esac
           odin build . -o:speed -vet -strict-style -collection:jm="$PWD/jm" $version $STUB_LIBS \
+            -define:COMMIT="\"${GITHUB_SHA::7}\"" \
             -target:${{ matrix.target }} -out:build/release/${{ matrix.asset }}
       - name: smoke test
         if: matrix.target != 'darwin_amd64'

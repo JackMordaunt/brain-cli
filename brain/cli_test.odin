@@ -213,6 +213,11 @@ version_and_update_on_a_development_build :: proc(t: ^testing.T) {
 	testing.expect_value(t, code, 0)
 	testing.expect(t, strings.has_prefix(o, "brain dev ("), o)
 	testing.expect(t, strings.contains(o, ASSET), o)
+	// The test binary is built by the justfile, which stamps the commit.
+	stamp := commit_stamp()
+	testing.expect(t, stamp != "" && !strings.contains(stamp, "\"") && strings.has_suffix(o, strings.concatenate({") built from ", stamp, "\n"})), o)
+	o, _, _ = exec(f.cli, "version", "--json")
+	testing.expect(t, strings.contains(o, strings.concatenate({`"commit":"`, stamp, `","dirty":`, strings.has_suffix(stamp, "-dirty") ? "true" : "false"})), o)
 	e: string
 	_, e, code = exec(f.cli, "update")
 	testing.expect_value(t, code, 1)

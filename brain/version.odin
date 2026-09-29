@@ -1,6 +1,7 @@
 package brain
 
 import "core:os"
+import "core:strings"
 
 import "jm:selfupdate"
 
@@ -8,6 +9,17 @@ import "jm:selfupdate"
 // -define:VERSION. A local build has none, which selfupdate treats as a
 // development build and leaves alone.
 VERSION :: #config(VERSION, "")
+
+// COMMIT is the commit the binary was built from, short, with "-dirty"
+// when the working tree had uncommitted changes; the justfile and the
+// release workflow pass it with -define:COMMIT, quoted so that a hash such
+// as 21e17ac is not read as a number, and commit_stamp strips the quotes.
+// A build made some other way says so.
+COMMIT :: #config(COMMIT, "")
+
+commit_stamp :: proc() -> string {
+	return strings.trim(COMMIT, "\"")
+}
 
 // Where releases are served. Any host that serves the asset, sha256sums.txt,
 // its signature and version.txt under one path works; this is the GitHub
@@ -35,16 +47,20 @@ when ODIN_OS == .Windows {
 PUBLIC_KEY :: "669f31988381713bf2698ce408ace480fdf0130e2e3168e3916d67cf6afe56dc"
 
 cmd_version :: proc(cli: ^Cli, args: []string) -> int {
+	stamp := commit_stamp()
+	commit := stamp == "" ? "unknown commit" : stamp
 	if cli.json {
 		w := jw_make()
 		jw_obj(&w)
 		jw_field(&w, "version", VERSION == "" ? "dev" : VERSION)
+		jw_field(&w, "commit", stamp)
+		jw_field_bool(&w, "dirty", strings.has_suffix(stamp, "-dirty"))
 		jw_field(&w, "asset", ASSET)
 		jw_end_obj(&w)
 		jw_flush(cli, &w)
 		return 0
 	}
-	outf(cli, "brain %s (%s)\n", VERSION == "" ? "dev" : VERSION, ASSET)
+	outf(cli, "brain %s (%s) built from %s\n", VERSION == "" ? "dev" : VERSION, ASSET, commit)
 	return 0
 }
 

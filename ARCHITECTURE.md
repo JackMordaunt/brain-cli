@@ -43,7 +43,9 @@ old binary as `brain.old`, swaps the new one in and runs it. Once a day,
 when run at a terminal, `brain` says on stderr that an update exists; it
 never downloads on its own, and hooks, agents and pipes never see the
 notice. `BRAIN_NO_UPDATE=1` silences it. `brain version` prints the build's
-tag, or `dev` for a local build, which never updates itself.
+tag, or `dev` for a local build, which never updates itself, and the commit
+it was built from, with `-dirty` when the tree had uncommitted changes; the
+justfile and the release workflow pass it as `-define:COMMIT`.
 
 ## The vault's shape
 
