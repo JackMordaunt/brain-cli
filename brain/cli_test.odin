@@ -468,3 +468,81 @@ mcp_serves_the_commands_as_tools :: proc(t: ^testing.T) {
 	inbox, _ := path.read(path.join(f.vault, INBOX_FILE))
 	testing.expect(t, strings.contains(inbox, `a "quoted" fact — mcp:fixture-client — `), inbox)
 }
+
+// Export writes the repository's pack into each agent's file: a managed
+// block in a shared file, the whole file where the file is brain's, with
+// the frontmatter that agent expects; a second run changes nothing.
+@(test)
+export_writes_each_agents_file :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	repo := path.join(f.root, "sqlite")
+	testing.expect_value(t, path.mkdirs(path.join(repo, ".git")), nil)
+	testing.expect_value(t, path.write(path.join(repo, "CLAUDE.md"), "# My repo\n\nKeep this.\n"), nil)
+	f.cli.env["PWD"] = repo
+	o, _, code := exec(f.cli, "export", "claude", "codex", "cursor", "kiro")
+	testing.expect_value(t, code, 0)
+	claude, _ := path.read(path.join(repo, "CLAUDE.md"))
+	testing.expect(t, strings.has_prefix(claude, "<!-- brain:memory >>> managed by `brain export`"), claude)
+	testing.expect(t, strings.contains(claude, "\n# brain pack sqlite: ") && strings.contains(claude, " **sqlite** — "), "the pack is the block")
+	testing.expect(t, strings.has_suffix(claude, "brain:memory <<< -->\n\n# My repo\n\nKeep this.\n"), "the file's own text follows")
+	agents, _ := path.read(path.join(repo, "AGENTS.md"))
+	testing.expect(t, strings.contains(agents, "brain:memory >>>") && strings.contains(agents, "**sqlite**"), "codex is AGENTS.md")
+	cursor, _ := path.read(path.join(repo, ".cursor", "rules", "brain.mdc"))
+	testing.expect(t, strings.has_prefix(cursor, "---\ndescription: ") && strings.contains(cursor, "\nalwaysApply: true\n---\n# brain pack sqlite"), cursor)
+	kiro, _ := path.read(path.join(repo, ".kiro", "steering", "brain.md"))
+	testing.expect(t, strings.has_prefix(kiro, "---\ninclusion: always\n---\n# brain pack sqlite"), kiro)
+	testing.expect(t, !strings.contains(cursor, "brain:memory"), "an owned file has no block markers")
+	o, _, code = exec(f.cli, "export", "claude", "cursor")
+	testing.expect_value(t, code, 0)
+	testing.expect_value(t, strings.count(o, "already current"), 2)
+	e: string
+	_, e, code = exec(f.cli, "export", "emacs")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "unknown agent: emacs") && strings.contains(e, "kiro"), e)
+	_, _, code = exec(f.cli, "export", "--all")
+	testing.expect_value(t, code, 0)
+	for rel in ([2]string{".github/copilot-instructions.md", "GEMINI.md"}) {
+		text, _ := path.read(path.join(repo, rel))
+		testing.expect(t, strings.contains(text, "brain:memory >>>") && strings.contains(text, "**sqlite**"), rel)
+	}
+	cline, _ := path.read(path.join(repo, ".clinerules", "brain.md"))
+	testing.expect(t, strings.has_prefix(cline, "# brain pack sqlite"), cline)
+}
+
+// Import proposes what Claude Code remembered on its own, one bullet per
+// memory with the memory file's body as the fact, and reads any other
+// markdown list as proposals with the first words as handles.
+@(test)
+import_proposes_claude_memories_and_lists :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	repo := path.join(f.root, "sqlite")
+	testing.expect_value(t, path.mkdirs(path.join(repo, ".git")), nil)
+	f.cli.env["PWD"] = repo
+	mem := path.join(f.home, ".claude", "projects", claude_slug(repo), "memory")
+	testing.expect_value(t, path.mkdirs(mem), nil)
+	testing.expect_value(t, path.write(path.join(mem, "MEMORY.md"), "- [Canonical remote](canonical-remote.md) — the hook\n- [Loose](nowhere.md) — just the hook\nnot a memory\n"), nil)
+	testing.expect_value(t, path.write(path.join(mem, "canonical-remote.md"), "---\nname: canonical-remote\ndescription: d\nmetadata:\n  type: user\n---\n\nUse the forge\nfor remotes.\n"), nil)
+	o, _, code := exec(f.cli, "import", "claude")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "2 proposal(s) from 2 memories"), o)
+	inbox, _ := path.read(path.join(f.vault, INBOX_FILE))
+	testing.expect(t, strings.contains(inbox, "- **Canonical remote** — Use the forge for remotes. — claude memory (user) — "), inbox)
+	testing.expect(t, strings.contains(inbox, "- **Loose** — just the hook — claude memory — "), inbox)
+	list := path.join(f.root, "notes.md")
+	testing.expect_value(t, path.write(list, "# Notes\n\n- the build needs the jm submodule checked out.\n* second one\n- **kept** (aliases: k) — as it is\n"), nil)
+	o, _, code = exec(f.cli, "import", list)
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "3 proposal(s) from 3 memories"), o)
+	inbox, _ = path.read(path.join(f.vault, INBOX_FILE))
+	testing.expect(t, strings.contains(inbox, "- **the build needs the jm** — the build needs the jm submodule checked out. — imported from notes.md — "), inbox)
+	testing.expect(t, strings.contains(inbox, "- **second one** — second one — imported from notes.md — "), inbox)
+	testing.expect(t, strings.contains(inbox, "- **kept** (aliases: k) — as it is — imported from notes.md — "), inbox)
+	e: string
+	_, e, code = exec(f.cli, "import", path.join(f.root, "missing.md"))
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "cannot read"), e)
+}

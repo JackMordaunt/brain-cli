@@ -173,6 +173,10 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 		return cmd_inbox(cli, rest)
 	case "mcp":
 		return cmd_mcp(cli, rest)
+	case "export":
+		return cmd_export(cli, rest)
+	case "import":
+		return cmd_import(cli, rest)
 	case "recall":
 		return cmd_recall(cli, rest)
 	case "sync":
@@ -218,6 +222,9 @@ USAGE :: `brain — query and lint the vault. Markdown is canonical; the index i
     --budget N (default 1500) and cached until the vault changes; --fresh rebuilds it
   brain propose '<bullet>' queue a fact for a person to approve; source and date fill in
   brain inbox [approve <n> [--to LEARNINGS] | drop <n>]  the proposals waiting
+  brain export <agent>... write this repository's pack into the agent's file: claude (CLAUDE.md),
+    agents (AGENTS.md: codex, opencode, jules, junie, zed, warp), copilot, gemini, cursor, cline, kiro
+  brain import claude | <file.md>  propose what an agent remembered on its own, one bullet each
   brain mcp               serve find, recall, pack, propose and locate over MCP on stdio
   brain recall <terms...> search agent transcripts: what was said, not what is true
     --sync --sources --enable <a> --disable <a> --full <id> --limit N --json

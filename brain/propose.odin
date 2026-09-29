@@ -23,7 +23,11 @@ cmd_propose :: proc(cli: ^Cli, args: []string) -> int {
 	if line == "" {
 		return fail(cli, "usage: brain propose '- **handle** (aliases: ...) — fact — source — YYYY-MM-DD'")
 	}
-	line = complete_bullet(line, caller_id(cli))
+	return propose_line(cli, complete_bullet(line, caller_id(cli)))
+}
+
+// propose_line queues one completed bullet line, or says why not.
+propose_line :: proc(cli: ^Cli, line: string) -> int {
 	b, ok := parse_bullet(line, "")
 	if !ok {
 		return fail(cli, strings.concatenate({"not a bullet: it needs `- **handle**`, a fact and a date; got: ", line}))

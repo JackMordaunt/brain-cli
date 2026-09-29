@@ -47,7 +47,8 @@ cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
 		}
 	}
 	if len(terms) == 0 {
-		append(&terms, project_here(cli))
+		_, name := repo_here(cli)
+		append(&terms, name)
 	}
 	db, oerr := open_db(cli.db)
 	if oerr != "" {
@@ -95,11 +96,11 @@ cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
 	return 0
 }
 
-// project_here names the repository the caller is in: the basename of the
-// nearest directory, from the working directory up, that holds a .git, else
-// the working directory's own. PWD is read first so a hook, or a test, can
-// say where it is.
-project_here :: proc(cli: ^Cli) -> string {
+// repo_here is the repository the caller is in: the nearest directory, from
+// the working directory up, that holds a .git, else the working directory
+// itself; and its name. PWD is read first so a hook, or a test, can say
+// where it is.
+repo_here :: proc(cli: ^Cli) -> (root, name: string) {
 	cwd := getenv(cli, "PWD")
 	if cwd == "" {
 		cwd, _ = os.get_working_directory(context.allocator)
@@ -108,7 +109,7 @@ project_here :: proc(cli: ^Cli) -> string {
 	d := start
 	for {
 		if os.exists(path.join(d, ".git")) {
-			return path.base(d)
+			return d, path.base(d)
 		}
 		parent := path.dir(d)
 		if parent == d || parent == "" {
@@ -116,7 +117,7 @@ project_here :: proc(cli: ^Cli) -> string {
 		}
 		d = parent
 	}
-	return path.base(start)
+	return start, path.base(start)
 }
 
 // build_pack selects and renders the pack. Bullets whose handle or alias is

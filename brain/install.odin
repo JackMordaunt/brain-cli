@@ -37,8 +37,8 @@ note :: proc(cli: ^Cli, format: string, args: ..any) {
 	out(cli, "\n")
 }
 
-block_begin :: proc(co, tag, cc: string) -> string {
-	return fmt.aprintf("%s brain:%s >>> managed by `brain install`; edit the vault, not this block %s", co, tag, cc)
+block_begin :: proc(co, tag, cc: string, by := "brain install") -> string {
+	return fmt.aprintf("%s brain:%s >>> managed by `%s`; edit the vault, not this block %s", co, tag, by, cc)
 }
 
 block_end :: proc(co, tag, cc: string) -> string {
@@ -59,8 +59,8 @@ backup :: proc(p: string) {
 
 // block_apply writes body between the tag's markers in file, adding the
 // block at the top when it is absent and replacing it when it differs.
-block_apply :: proc(cli: ^Cli, file, tag, co, cc, body: string) {
-	b := block_begin(co, tag, cc)
+block_apply :: proc(cli: ^Cli, file, tag, co, cc, body: string, by := "brain install") {
+	b := block_begin(co, tag, cc, by)
 	e := block_end(co, tag, cc)
 	open_mark := strings.concatenate({"brain:", tag, " >>>"})
 	close_mark := strings.concatenate({"brain:", tag, " <<<"})

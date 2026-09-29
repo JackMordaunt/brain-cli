@@ -123,6 +123,32 @@ to a core file, removes it from the inbox and resyncs; `drop <n>` discards
 it. The inbox is markdown in the vault like everything else, so it is
 diffable, and the approval is the commit.
 
+## Export and import
+
+Every coding agent reads a markdown file at the root of a repository
+before it starts, each under its own name, and each keeps what it learns
+in a place the others cannot read. `brain export <agent>...` writes the
+repository's pack into that agent's file, so the vault is the durable
+store and the file a view of it: run it again after the vault changes and
+every agent opens with the same facts. Shared files get a managed block
+beside whatever is there: `CLAUDE.md`, `AGENTS.md` (Codex, OpenCode,
+Jules, Junie, Zed and Warp read it), `.github/copilot-instructions.md`,
+`GEMINI.md`. Files brain owns are written whole with the frontmatter that
+agent expects: `.cursor/rules/brain.mdc` (`alwaysApply: true`),
+`.clinerules/brain.md`, `.kiro/steering/brain.md` (`inclusion: always`).
+The block enters the repository like any other file, so export is a
+deliberate command, never a hook. The set is the agents in the top ten by
+use in 2026 or backed by Google, Amazon or Microsoft, with the trailing
+ones left out; the table is `TARGETS` in `brain/export.odin`.
+
+`brain import claude` reads what Claude Code remembered on its own, one
+file per memory under `~/.claude/projects/<slug>/memory/` with `MEMORY.md`
+as the index, and proposes each as a bullet with the memory's body as the
+fact and its type as the source. `brain import <file.md>` reads any other
+markdown list the same way, the first words of a line as its handle. Both
+go through the inbox: nothing enters the vault until a person approves it.
+Copilot Memory and Cursor Memories are server-side and cannot be read.
+
 ## MCP
 
 `brain mcp` speaks the Model Context Protocol on stdio, for agents that
