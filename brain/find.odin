@@ -142,7 +142,7 @@ EXACT_RATIO :: 0.5
 // drops the hits that are not near ties with it, so an exact ask gets its
 // answer and not seven neighbours. A query naming no bullet comes back as
 // it was.
-cut_to_exact :: proc(hits: []Hit, raw: string) -> []Hit {
+cut_to_exact :: proc(hits: []Hit, raw: string) -> (kept_hits: []Hit, named: bool) {
 	q := strings.join(query_terms(raw), " ")
 	ex := -1
 	for h, i in hits {
@@ -152,7 +152,7 @@ cut_to_exact :: proc(hits: []Hit, raw: string) -> []Hit {
 		}
 	}
 	if ex < 0 {
-		return hits
+		return hits, false
 	}
 	kept := make([dynamic]Hit)
 	append(&kept, hits[ex])
@@ -161,7 +161,7 @@ cut_to_exact :: proc(hits: []Hit, raw: string) -> []Hit {
 			append(&kept, h)
 		}
 	}
-	return kept[:]
+	return kept[:], true
 }
 
 // names reports whether q, already normalised by query_terms, is the hit's
@@ -233,11 +233,15 @@ Form :: enum {
 
 // format_hit renders one hit. A bullet written without a source parses its
 // fact as the source, so the terse form takes whichever field is there; one
-// with neither prints as written.
-format_hit :: proc(h: Hit, form: Form) -> string {
+// with neither prints as written. with_source keeps the source clause in the
+// terse form: the line's provenance, at 5 to 10 percent more of a bullet.
+format_hit :: proc(h: Hit, form: Form, with_source := false) -> string {
 	loc := strings.concatenate({h.file, ":", int_str(h.line)})
 	body := h.fact != "" ? h.fact : h.source
 	if form == .Terse && body != "" {
+		if with_source && h.fact != "" && h.source != "" {
+			return strings.concatenate({loc, " **", h.handle, "**", SEP, body, SEP, h.source, SEP, h.date, "\n"})
+		}
 		return strings.concatenate({loc, " **", h.handle, "**", SEP, body, SEP, h.date, "\n"})
 	}
 	return strings.concatenate({loc, "\n", h.raw, "\n\n"})
@@ -249,6 +253,13 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	form := caller_id(cli) != "" ? Form.Terse : Form.Raw
 	budget := FIND_BYTES
+	// Notes (prose lines) come when the bullets fall short, fewer than two
+	// and none named outright, or on --notes. BRAIN_NOTES=always is the older behaviour and
+	// BRAIN_TERSE=source keeps the source clause; both exist so the proof can
+	// run them as conditions.
+	want_notes := false
+	notes_always := getenv(cli, "BRAIN_NOTES") == "always"
+	with_source := getenv(cli, "BRAIN_TERSE") == "source"
 	terms := make([dynamic]string)
 	rest := args
 	for len(rest) > 0 {
@@ -259,6 +270,8 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 			form = .Terse
 		case "--raw":
 			form = .Raw
+		case "--notes":
+			want_notes = true
 		case "--budget":
 			n, ok := 0, false
 			if len(rest) > 0 {
@@ -292,10 +305,14 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	if len(hits) == 0 {
 		hits = query_fts(db, m.or)
 	}
-	hits = cut_to_exact(hits, raw)
-	docs := query_lines(db, m.prose_and)
-	if len(docs) == 0 {
-		docs = query_lines(db, m.prose_or)
+	named: bool
+	hits, named = cut_to_exact(hits, raw)
+	docs: []Doc
+	if want_notes || notes_always || (len(hits) < 2 && !named) {
+		docs = query_lines(db, m.prose_and)
+		if len(docs) == 0 {
+			docs = query_lines(db, m.prose_or)
+		}
 	}
 	n := len(hits) + len(docs)
 
@@ -356,7 +373,7 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	written := 0
 	capped := false
 	for h in hits {
-		entry := format_hit(h, form)
+		entry := format_hit(h, form, with_source)
 		if written + len(entry) > budget {
 			capped = true
 			break

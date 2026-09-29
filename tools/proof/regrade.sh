@@ -7,7 +7,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 out=$1
 questions=${2:-$here/questions.tsv}
 : > "$out/runs.jsonl"
-tail -n +2 "$questions" | while IFS=$'\t' read -r id _ expected; do
+tail -n +2 "$questions" | while IFS=$'\t' read -r id _ expected kind; do
   for raw in "$out"/raw/*-"$id"-*.json; do
     [ -f "$raw" ] || continue
     name=$(basename "$raw" .json)          # <model>-<condition>-<id>-<repeat>
@@ -15,7 +15,7 @@ tail -n +2 "$questions" | while IFS=$'\t' read -r id _ expected; do
     prefix=${name%-"$id"-*}                  # <model>-<condition>
     cond=${prefix##*-}
     model=${prefix%-"$cond"}
-    python3 "$here/record.py" "$cond" "$id" "$rep" "$expected" "$raw" "$model" >> "$out/runs.jsonl"
+    python3 "$here/record.py" "$cond" "$id" "$rep" "$expected" "$raw" "$model" "${kind:-bullet}" >> "$out/runs.jsonl"
   done
 done
 python3 "$here/summarize.py" "$out/runs.jsonl" > "$out/summary.md"

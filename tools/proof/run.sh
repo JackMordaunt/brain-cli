@@ -8,6 +8,7 @@
 #
 #   tools/proof/run.sh                # every question, every condition, once, on sonnet
 #   REPEATS=3 MODELS="haiku sonnet opus fable" CONDITIONS="plain brain" tools/proof/run.sh
+#   CONDITIONS="brain brain-notes brain-source brain-both" tools/proof/run.sh   # find's knobs
 #
 # Needs: claude (logged in), python3, a built build/release/brain, and a
 # vault (VAULT=<path>, else `brain locate`). Writes build/proof/<stamp>/:
@@ -52,19 +53,31 @@ tools=(Read Grep Glob 'Bash(brain:*)' 'Bash(grep:*)' 'Bash(rg:*)' 'Bash(cat:*)' 
 n=0
 for model in $models; do
 for r in $(seq 1 "$repeats"); do
-  tail -n +2 "$questions" | while IFS=$'\t' read -r id question expected; do
+  tail -n +2 "$questions" | while IFS=$'\t' read -r id question expected kind; do
     for c in $conditions; do
       n=$((n + 1))
       raw="$out/raw/$model-$c-$id-$r.json"
       path="/usr/bin:/bin"
-      [ "$c" = brain ] && path="$work/bin:$path"
-      (cd "$work/$c" && env -i HOME="$work/home" PATH="$path" TERM=dumb LANG=C.UTF-8 \
+      dir="$c"
+      # brain-* conditions are brain with a knob turned: brain-notes returns
+      # notes only when bullets fall short, brain-source keeps the source
+      # clause, brain-both does both; plain brain is the older behaviour.
+      notes=always
+      with_source=""
+      case "$c" in
+        brain) path="$work/bin:$path" ;;
+        brain-notes) dir=brain; path="$work/bin:$path"; notes=auto ;;
+        brain-source) dir=brain; path="$work/bin:$path"; with_source=source ;;
+        brain-both) dir=brain; path="$work/bin:$path"; notes=auto; with_source=source ;;
+      esac
+      (cd "$work/$dir" && env -i HOME="$work/home" PATH="$path" TERM=dumb LANG=C.UTF-8 \
           BRAIN_VAULT="$work/vault" BRAIN_STATE="$work/state" BRAIN_NO_UPDATE=1 \
+          BRAIN_NOTES="$notes" BRAIN_TERSE="$with_source" \
           claude -p "$question" --output-format json --model "$model" --max-turns 12 \
           --max-budget-usd 1 --no-session-persistence \
           --append-system-prompt "Answer in at most three sentences." \
           --allowedTools "${tools[@]}" < /dev/null > "$raw" 2>"$raw.err") || true
-      python3 "$here/record.py" "$c" "$id" "$r" "$expected" "$raw" "$model" >> "$out/runs.jsonl"
+      python3 "$here/record.py" "$c" "$id" "$r" "$expected" "$raw" "$model" "${kind:-bullet}" >> "$out/runs.jsonl"
       printf '%s %s %s r%s: %s\n' "$model" "$c" "$id" "$r" "$(tail -n 1 "$out/runs.jsonl" | python3 -c 'import sys,json; d=json.loads(sys.stdin.readline()); print(("ok " if d["correct"] else "MISS"), d["tokens"], "tokens,", d["turns"], "turns", "$%.3f" % d["cost"])')"
     done
   done

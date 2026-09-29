@@ -1,13 +1,17 @@
-id	question	expected
-canonical-remote	Which host is canonical for my git repositories, and what role do GitHub and sourcehut play?	mordaunt\.dev.*mirror|mirror.*mordaunt\.dev
-jm-submodule	How do my Odin applications depend on the jm collection, and which environment variable makes a build use a different jm checkout?	submodule.*\bJM\b|\bJM\b.*submodule
-just-shell	Does the just command runner ship its own shell? What does a recipe with a bash shebang need on Windows?	git bash|scoop
-libgit2-ties	With GIT_SORT_TIME alone, what goes wrong in libgit2's revwalk for commits made within the same second, and what sort flags does jm:git use instead?	TOPOLOGICAL
-fzf-with-nth	In fzf with --with-nth, can a trailing hidden column carry extra text for matching? Which flag takes filtering away from fzf so a picker can rank rows itself?	--disabled
-hyprland-class	Why does a Hyprland window rule whose class regex is ^chrome-web\.whatsapp\.com fail to match the class chrome-web.whatsapp.com__-Default, and how should the regex be written?	whole class|\.\*|entire (class|string)
-mpv-mpris	On my machine, why does mpv hang before it even opens a URL when --audio-client-name contains a space?	mpris|d-bus|dbus|g_bus_own_name
-install-one-liner	What is the one-line shell command that installs brain-cli on Linux?	mordaunt\.dev/code/brain-cli/install\.sh
-brainfold-voice	What words should brainfold's product surfaces use instead of git vocabulary, and where is git revealed for the curious?	sync|outcome
-odin-allocation	What is the jm memory style for lightweight helper code in Odin: when is dynamic allocation acceptable?	allocation-free|stack buffer|fixed buffer
-busctl-buffer	Why does busctl monitor show nothing when piped into a while-read loop, and what command prefix fixes the buffering?	stdbuf
-cl-git-bash	On a Windows GitHub Actions runner in a bash step, cl /nologo compiles nothing. Why, and which environment variable stops it?	MSYS_NO_PATHCONV
+id	question	expected	kind
+canonical-remote	Which host is canonical for my git repositories, and what role do GitHub and sourcehut play?	mordaunt\.dev.*mirror|mirror.*mordaunt\.dev	bullet
+jm-submodule	How do my Odin applications depend on the jm collection, and which environment variable makes a build use a different jm checkout?	submodule.*\bJM\b|\bJM\b.*submodule	bullet
+just-shell	Does the just command runner ship its own shell? What does a recipe with a bash shebang need on Windows?	git bash|scoop	bullet
+libgit2-ties	With GIT_SORT_TIME alone, what goes wrong in libgit2's revwalk for commits made within the same second, and what sort flags does jm:git use instead?	TOPOLOGICAL	bullet
+fzf-with-nth	In fzf with --with-nth, can a trailing hidden column carry extra text for matching? Which flag takes filtering away from fzf so a picker can rank rows itself?	--disabled	bullet
+hyprland-class	Why does a Hyprland window rule whose class regex is ^chrome-web\.whatsapp\.com fail to match the class chrome-web.whatsapp.com__-Default, and how should the regex be written?	whole class|\.\*|entire (class|string)	bullet
+mpv-mpris	On my machine, why does mpv hang before it even opens a URL when --audio-client-name contains a space?	mpris|d-bus|dbus|g_bus_own_name	bullet
+install-one-liner	What is the one-line shell command that installs brain-cli on Linux?	mordaunt\.dev/code/brain-cli/install\.sh	bullet
+brainfold-voice	What words should brainfold's product surfaces use instead of git vocabulary, and where is git revealed for the curious?	sync|outcome	bullet
+odin-allocation	What is the jm memory style for lightweight helper code in Odin: when is dynamic allocation acceptable?	allocation-free|stack buffer|fixed buffer	bullet
+busctl-buffer	Why does busctl monitor show nothing when piped into a while-read loop, and what command prefix fixes the buffering?	stdbuf	bullet
+cl-git-bash	On a Windows GitHub Actions runner in a bash step, cl /nologo compiles nothing. Why, and which environment variable stops it?	MSYS_NO_PATHCONV	bullet
+hosted-sync-encryption	What end-to-end encrypted approaches does the brainfold roadmap name for a hosted git remote?	gcrypt|age	notes
+libgit2-ssh	How does the brainfold roadmap say the shipped app should handle SSH transport with libgit2?	USE_SSH=exec|ssh binary|platform.{0,20}ssh	notes
+libgit2-https	Which HTTPS backends does the brainfold roadmap list for libgit2 on each platform?	WinHTTP|SecureTransport|OpenSSL-Dynamic	notes
+desk-payments	Through which payment providers does the brainfold roadmap plan to sell the desk app?	Polar|Lemon Squeezy	notes

@@ -3,7 +3,8 @@
 import json, re, sys
 cond, qid, rep, expected, raw = sys.argv[1:6]
 model = sys.argv[6] if len(sys.argv) > 6 else "sonnet"
-rec = {"model": model, "condition": cond, "question": qid, "repeat": int(rep), "correct": False,
+kind = sys.argv[7] if len(sys.argv) > 7 else "bullet"
+rec = {"model": model, "condition": cond, "question": qid, "kind": kind, "repeat": int(rep), "correct": False,
        "tokens": 0, "input": 0, "cache_read": 0, "cache_write": 0, "output": 0,
        "turns": 0, "cost": 0.0, "seconds": 0.0, "answer": "", "error": ""}
 try:

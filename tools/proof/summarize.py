@@ -7,6 +7,7 @@ for f in sys.argv[1:]:
     runs += [json.loads(l) for l in open(f) if l.strip()]
 for r in runs:
     r.setdefault("model", "sonnet")
+    r.setdefault("kind", "bullet")
 conds, models = [], []
 for r in runs:
     if r["condition"] not in conds:
@@ -29,6 +30,27 @@ for m in models:
             continue
         ok = sum(r["correct"] for r in rs)
         print(f"| {m} | {c} | {len(rs)} | {ok}/{len(rs)} ({100*ok/len(rs):.0f}%) | {mean([r['tokens'] for r in rs]):,.0f} | {med([r['tokens'] for r in rs]):,.0f} | {mean([r['output'] for r in rs]):,.0f} | {mean([r['turns'] for r in rs]):.1f} | ${mean([r['cost'] for r in rs]):.3f} | {mean([r['seconds'] for r in rs]):.1f} |")
+kinds = []
+for r in runs:
+    if r["kind"] not in kinds:
+        kinds.append(r["kind"])
+if len(kinds) > 1:
+    print("\n## By kind of question: answer in a bullet, or only in a note\n")
+    print("| model | condition | " + " | ".join(f"{k}: correct" for k in kinds) + " | " + " | ".join(f"{k}: tokens" for k in kinds) + " |")
+    print("|---|---|" + "---:|" * (2 * len(kinds)))
+    for m in models:
+        for c in conds:
+            rs = by[m, c]
+            if not rs:
+                continue
+            cells = []
+            for k in kinds:
+                x = [r for r in rs if r["kind"] == k]
+                cells.append(f"{sum(r['correct'] for r in x)}/{len(x)}" if x else "")
+            for k in kinds:
+                x = [r for r in rs if r["kind"] == k]
+                cells.append(f"{mean([r['tokens'] for r in x]):,.0f}" if x else "")
+            print(f"| {m} | {c} | " + " | ".join(cells) + " |")
 qs = []
 for r in runs:
     if r["question"] not in qs:

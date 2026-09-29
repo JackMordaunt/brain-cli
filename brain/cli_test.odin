@@ -653,3 +653,30 @@ ledger_counts_tokens_against_the_core_files :: proc(t: ^testing.T) {
 	want := strings.concatenate({`{"caller":"fixture-agent","sessions":1,"lookups":2,"answered":1,"tokens_returned":`, int_str(i64(returned / 4)), `,"tokens_saved":`, int_str(i64((baseline - returned) / 4)), `}`})
 	testing.expect(t, strings.contains(o, want), strings.concatenate({want, "\n", o}))
 }
+
+// Notes come when the bullets fall short or on --notes, and the terse form
+// keeps the source clause when asked to.
+@(test)
+find_adds_notes_when_bullets_fall_short :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	testing.expect_value(t, path.append_file(path.join(f.vault, "AI", "handoffs", "2026-01-01-fixture.md"), "\nThe sqlite index is disposable and rebuilds itself, said the handoff at length here.\n"), nil)
+	o, _, _ := exec(f.cli, "find", "sqlite")
+	testing.expect(t, !strings.contains(o, "-- notes"), "one bullet named outright: no notes")
+	// One bullet matched on its fact, none named: the bullets fell short.
+	o, _, _ = exec(f.cli, "find", "rebuilds")
+	testing.expect(t, strings.contains(o, "**sqlite**") && strings.contains(o, "-- notes") && strings.contains(o, "handoffs/2026-01-01-fixture.md"), o)
+	o, _, _ = exec(f.cli, "find", "sqlite", "--notes")
+	testing.expect(t, strings.contains(o, "-- notes") && strings.contains(o, "handoffs/2026-01-01-fixture.md"), o)
+	f.cli.env["BRAIN_NOTES"] = "always"
+	o, _, _ = exec(f.cli, "find", "sqlite")
+	testing.expect(t, strings.contains(o, "-- notes"), "BRAIN_NOTES=always restores them")
+	delete_key(&f.cli.env, "BRAIN_NOTES")
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	o, _, _ = exec(f.cli, "find", "sqlite")
+	testing.expect(t, !strings.contains(o, "— fixture —"), "terse drops the source")
+	f.cli.env["BRAIN_TERSE"] = "source"
+	o, _, _ = exec(f.cli, "find", "sqlite")
+	testing.expect(t, strings.contains(o, " **sqlite** — the index is SQLite with FTS5; delete it and `brain sync` rebuilds it — fixture — 2026-01-01\n"), o)
+}
