@@ -11,6 +11,7 @@
 #   just desk      open the desk prototype, hot-reloading tools/desk
 #   just hot DIR TITLE  the loop under both: any jm:ui child in a window
 #   just branding  regenerate branding/ (SVG from tools/logo, PNG via rsvg-convert)
+#   just proof     what a lookup costs a real agent session: vanilla, plain markdown, brain
 #   just preview   render README.md and ARCHITECTURE.md to build/ and open them
 #   just clean     remove build/ and the index
 
@@ -56,6 +57,12 @@ build: deps
 release: deps
     mkdir -p build/release
     {{odin}} build . -o:speed {{flags}} -out:build/release/brain{{exe}}
+
+# The proof: what a lookup costs a real agent session with no notes, with the
+# vault as plain markdown, and through brain. Needs claude logged in.
+# `just proof` runs sonnet once; MODELS and REPEATS widen it.
+proof: release
+    tools/proof/run.sh
 
 # Type-check every target, with and without -debug.
 check: deps

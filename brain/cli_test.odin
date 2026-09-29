@@ -121,7 +121,7 @@ find_ranks_a_handle_and_reaches_a_document :: proc(t: ^testing.T) {
 	testing.expect(t, strings.has_prefix(o, "AI/MEMORY.md:"), "a locator precedes the bullet")
 	o, _, code = exec(f.cli, "find", "handoff")
 	testing.expect_value(t, code, 0)
-	testing.expect(t, strings.contains(o, "-- documents --"), "find document")
+	testing.expect(t, strings.contains(o, "-- notes (older snapshots; a bullet above outranks them) --"), "find document")
 	o, _, code = exec(f.cli, "find", "zzzznope")
 	testing.expect_value(t, code, 1)
 	testing.expect(t, strings.has_prefix(o, "nothing in the vault for: zzzznope"), "a miss says so")

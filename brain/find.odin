@@ -365,8 +365,8 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 		written += len(entry)
 	}
 	if !capped && len(docs) > 0 {
-		out(cli, "-- documents --\n")
-		written += len("-- documents --\n")
+		out(cli, NOTES_HEAD)
+		written += len(NOTES_HEAD)
 		for d in docs {
 			line := strings.concatenate({rune_prefix(strings.concatenate({d.locator, "  ", d.text}), 220), "\n"})
 			if written + len(line) > budget {
@@ -383,6 +383,12 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	sqlite3.exec_args(db, "update queries set bytes=? where id=?", i64(written), qid)
 	return 0
 }
+
+// NOTES_HEAD introduces the prose lines under the bullets. An agent reading
+// both needs to know which wins: a note is a snapshot of when it was
+// written, a bullet was kept true. On tools/proof (sonnet, 2026-09-29) an
+// agent took a stale plan's line over the current bullet above it.
+NOTES_HEAD :: "-- notes (older snapshots; a bullet above outranks them) --\n"
 
 // rune_prefix returns at most n characters of s.
 rune_prefix :: proc(s: string, n: int) -> string {

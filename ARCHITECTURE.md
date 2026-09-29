@@ -92,6 +92,22 @@ bullets returned often enough that a gate or a project file should carry
 them. The misses `brain log` lists are the backlog for editing
 `synonyms.tsv`.
 
+## The proof
+
+`tools/proof/run.sh` measures what a lookup costs a real agent. It asks
+the questions in `questions.tsv`, each answerable from a bullet in the
+vault, of `claude -p` under three conditions: no notes, the vault as plain
+markdown the agent must search itself, and the vault behind `brain`. Every
+run is one session in an isolated home holding only credentials, so no
+global instruction reaches it; the working directory's CLAUDE.md is the
+whole difference between conditions. `record.py` scores each run against
+the question's regex on the full answer and keeps its usage; `summarize.py`
+reports per model and condition, with "beyond the prompt" as the tokens a
+run added past the fixed system prompt, which every condition sends again
+on every turn. `regrade.sh` re-scores a finished run from its raw files, so
+a change to the grading never needs the agents run again. MODELS, REPEATS
+and CONDITIONS widen a run; results land under `build/proof/<stamp>/`.
+
 ## One voice, one JSON face
 
 Output speaks in outcomes: what the vault knows, what is waiting, what a
@@ -243,6 +259,7 @@ them up.
 | `testdata/` | the fixture vault and transcripts the test suite runs against |
 | `branding/` | the mark and hero lockup, light and dark, SVG and PNG; `just branding` regenerates them |
 | `tools/logo/` | the logo lab: the mark's geometry, its SVG writer, and the grid of variations it was chosen from (`just logo`) |
+| `tools/proof/` | the proof: the same questions asked of real Claude Code sessions with no notes, with the vault as plain markdown, and through brain; `just proof`, then `regrade.sh` to re-score a run without re-running it |
 | `tools/desk/` | the desk prototype: the control room over a vault on jm:ui/material, against fixture data (`just desk`) |
 | `tools/host/` | the window both tools run in; `just hot DIR TITLE` rebuilds a child on save and the host respawns it |
 | `jm/` | the [jm collection](https://mordaunt.dev/code/jm), pinned as a submodule |
