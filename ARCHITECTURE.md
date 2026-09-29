@@ -112,6 +112,27 @@ recognised by its command: a second install adds nothing and `brain
 uninstall` removes only it. A settings file that does not parse is left
 alone and named, since a bad write there would take every hook with it.
 
+## Proposals
+
+Nothing an agent writes enters memory unseen. `brain propose '<bullet>'`
+completes the line (the caller as source, today as date when they are
+missing), checks it parses as a bullet, and appends it to `AI/INBOX.md`,
+which the scanner skips, so a proposal never answers a `find`. `brain
+inbox` numbers the queue; `approve <n> [--to LEARNINGS]` appends the line
+to a core file, removes it from the inbox and resyncs; `drop <n>` discards
+it. The inbox is markdown in the vault like everything else, so it is
+diffable, and the approval is the commit.
+
+## MCP
+
+`brain mcp` speaks the Model Context Protocol on stdio, for agents that
+have no shell: `find`, `recall`, `pack`, `propose` and `locate` as tools.
+Each call runs the command the CLI would in a Cli of its own and returns
+what it printed, so the tools cannot drift from the commands; the caller
+is logged as `mcp:<client>` from the client's own name. Register it with
+`claude mcp add --scope user brain -- brain mcp`, or the equivalent in
+another client.
+
 ## Recall
 
 `brain find` answers what was concluded and is still true. `brain recall`

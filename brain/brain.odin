@@ -167,6 +167,12 @@ run :: proc(cli: ^Cli, args: []string) -> int {
 		return cmd_find(cli, rest)
 	case "pack":
 		return cmd_pack(cli, rest)
+	case "propose":
+		return cmd_propose(cli, rest)
+	case "inbox":
+		return cmd_inbox(cli, rest)
+	case "mcp":
+		return cmd_mcp(cli, rest)
 	case "recall":
 		return cmd_recall(cli, rest)
 	case "sync":
@@ -210,6 +216,9 @@ USAGE :: `brain — query and lint the vault. Markdown is canonical; the index i
     --budget N (tokens, default 1000)  --raw|--terse (agents get terse: no aliases or source)
   brain pack [<project>]  the briefing to open a project with (default: the repo you are in): its bullets, terse, within
     --budget N (default 1500) and cached until the vault changes; --fresh rebuilds it
+  brain propose '<bullet>' queue a fact for a person to approve; source and date fill in
+  brain inbox [approve <n> [--to LEARNINGS] | drop <n>]  the proposals waiting
+  brain mcp               serve find, recall, pack, propose and locate over MCP on stdio
   brain recall <terms...> search agent transcripts: what was said, not what is true
     --sync --sources --enable <a> --disable <a> --full <id> --limit N --json
     --sessions (one row per conversation)  --prefix (last term matches as a prefix)

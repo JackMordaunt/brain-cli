@@ -68,6 +68,10 @@ list_md :: proc(vault: string) -> ([]string, os.Error) {
 		if strings.has_prefix(rel, ".git/") || strings.contains(rel, "/.git/") {
 			continue
 		}
+		// Proposals are not memory until a person moved them.
+		if rel == INBOX_FILE {
+			continue
+		}
 		append(&files, rel)
 	}
 	slice.sort(files[:])

@@ -384,3 +384,87 @@ pack_infers_the_project_from_the_working_directory :: proc(t: ^testing.T) {
 	testing.expect_value(t, code, 0)
 	testing.expect_value(t, scalar_text(db, "select q from queries order by id desc limit 1"), "pack fixture")
 }
+
+// A proposal is completed, queued in the inbox, invisible to find until a
+// person approves it into a core file, and gone once dropped.
+@(test)
+propose_queues_and_inbox_approves :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	o, _, code := exec(f.cli, "propose", "- **new thing** (aliases: nt) — a fact an agent learned")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "proposed #1 **new thing**"), o)
+	inbox, _ := path.read(path.join(f.vault, INBOX_FILE))
+	testing.expect(t, strings.contains(inbox, "— a fact an agent learned — fixture-agent — "), "source filled in")
+	tail := strings.trim_space(inbox)
+	testing.expect(t, len(tail) > 10 && tail[len(tail) - 10:] == today_iso() && is_iso_date(today_iso()), "today's date filled in")
+	_, _, code = exec(f.cli, "find", "new", "thing")
+	testing.expect_value(t, code, 1)
+	o, _, code = exec(f.cli, "propose", "- **new thing** — again")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "already proposed as #1"), o)
+	e: string
+	_, e, code = exec(f.cli, "propose", "not a bullet")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "not a bullet"), e)
+	_, _, code = exec(f.cli, "propose", "- **second** — another — someone — 2026-01-05")
+	testing.expect_value(t, code, 0)
+	o, _, code = exec(f.cli, "inbox")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "#1 - **new thing**") && strings.contains(o, "\n#2 - **second**"), o)
+	o, _, code = exec(f.cli, "inbox", "approve", "1", "--to", "LEARNINGS")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "approved #1 **new thing** -> AI/LEARNINGS.md"), o)
+	learn, _ := path.read(path.join(f.vault, "AI", "LEARNINGS.md"))
+	testing.expect(t, strings.contains(learn, "- **new thing** (aliases: nt) — a fact an agent learned — fixture-agent — "), "moved")
+	o, _, code = exec(f.cli, "find", "new", "thing")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "**new thing**"), "findable once approved")
+	o, _, code = exec(f.cli, "inbox", "drop", "1")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "dropped #1 **second**"), o)
+	o, _, _ = exec(f.cli, "inbox")
+	testing.expect_value(t, o, "inbox empty\n")
+	_, _, code = exec(f.cli, "inbox", "approve", "1")
+	testing.expect_value(t, code, 1)
+}
+
+// The MCP server answers initialize, lists its tools, runs a tool as the
+// command it stands for, ignores notifications and refuses what it does
+// not know.
+@(test)
+mcp_serves_the_commands_as_tools :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	client := "mcp"
+	r := mcp_handle(f.cli, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","clientInfo":{"name":"fixture-client"}}}`, &client, "s1")
+	testing.expect(t, strings.has_prefix(r, `{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18"`), r)
+	testing.expect_value(t, client, "fixture-client")
+	testing.expect_value(t, mcp_handle(f.cli, `{"jsonrpc":"2.0","method":"notifications/initialized"}`, &client, "s1"), "")
+	r = mcp_handle(f.cli, `{"jsonrpc":"2.0","id":"a","method":"tools/list"}`, &client, "s1")
+	testing.expect(t, strings.has_prefix(r, `{"jsonrpc":"2.0","id":"a","result":{"tools":[`), r)
+	testing.expect(t, strings.contains(r, `"name":"propose"`), "propose is a tool")
+	r = mcp_handle(f.cli, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find","arguments":{"terms":"sqlite","budget":200}}}`, &client, "s1")
+	testing.expect(t, strings.has_prefix(r, `{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"AI/MEMORY.md:`), r)
+	testing.expect(t, strings.contains(r, `**sqlite**`) && strings.has_suffix(r, `"isError":false}}`), r)
+	testing.expect(t, !strings.contains(r, "(aliases:"), "an mcp caller is an agent: terse")
+	db, err := open_db(f.cli.db)
+	testing.expect_value(t, err, "")
+	testing.expect_value(t, scalar_text(db, "select caller || ' ' || session from queries order by id desc limit 1"), "mcp:fixture-client s1")
+	sqlite3.close(&db)
+	r = mcp_handle(f.cli, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"find","arguments":{"terms":"zzzznope"}}}`, &client, "s1")
+	testing.expect(t, strings.has_suffix(r, `"isError":true}}`), r)
+	r = mcp_handle(f.cli, `{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"nope","arguments":{}}}`, &client, "s1")
+	testing.expect(t, strings.contains(r, `"error":{"code":-32602`), r)
+	r = mcp_handle(f.cli, `{"jsonrpc":"2.0","id":5,"method":"resources/list"}`, &client, "s1")
+	testing.expect(t, strings.contains(r, `"error":{"code":-32601`), r)
+	r = mcp_handle(f.cli, `not json`, &client, "s1")
+	testing.expect(t, strings.contains(r, `"id":null,"error":{"code":-32700`), r)
+	r = mcp_handle(f.cli, `{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"propose","arguments":{"bullet":"- **via mcp** — a \"quoted\" fact"}}}`, &client, "s1")
+	testing.expect(t, strings.contains(r, `proposed #1 **via mcp**`), r)
+	inbox, _ := path.read(path.join(f.vault, INBOX_FILE))
+	testing.expect(t, strings.contains(inbox, `a "quoted" fact — mcp:fixture-client — `), inbox)
+}

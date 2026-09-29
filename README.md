@@ -89,6 +89,8 @@ the same shape: five snippets for `hyprctl eval` came to 0.9 KB.
 brain find <terms...>     search the vault; --budget <tokens> caps the answer
 brain pack [<project>]    the briefing to open a project with, cached until the vault changes;
                           installed as a Claude Code SessionStart hook
+brain propose '<bullet>'  queue a fact for a person to approve; brain inbox lists and moves them
+brain mcp                 the same over MCP on stdio, for agents without a shell
 brain recall <terms...>   search past agent conversations
 brain locate              print the vault's path
 brain sync                rebuild the index
