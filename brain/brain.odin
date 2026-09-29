@@ -247,8 +247,8 @@ parse_positive :: proc(s: string) -> (int, bool) {
 USAGE :: `brain — memory for your coding agents, in files you own.
 
 Ask
-  brain find <terms...>      what the vault knows; handle matches first, --budget N tokens,
-                             --notes adds matching lines from longer notes (automatic when bullets fall short)
+  brain find <terms...>      what the vault knows; handle matches first, then lines from
+                             longer notes; --budget N tokens
   brain pack [<project>]     the briefing a session opens with; --budget N, --fresh
   brain recall <terms...>    what past agent conversations said; --limit N, --full <id>,
                              --sessions, --prefix, --enable <agent>, --sources

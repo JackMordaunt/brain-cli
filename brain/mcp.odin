@@ -16,7 +16,7 @@ import "core:time"
 MCP_PROTOCOL :: "2025-06-18"
 
 MCP_TOOLS :: `{"tools":[
-{"name":"find","description":"Search the vault's bullets: what was concluded and is still true. Handle matches rank first; a term of three or more characters also matches the start of a handle. Lines from longer notes come when the bullets fall short, or when notes is true.","inputSchema":{"type":"object","properties":{"terms":{"type":"string","description":"search terms"},"budget":{"type":"integer","description":"most tokens to return (default 1000)"},"notes":{"type":"boolean","description":"also return matching lines from longer notes"}},"required":["terms"]}},
+{"name":"find","description":"Search the vault's bullets: what was concluded and is still true. Handle matches rank first; a term of three or more characters also matches the start of a handle. Lines from longer notes follow the bullets.","inputSchema":{"type":"object","properties":{"terms":{"type":"string","description":"search terms"},"budget":{"type":"integer","description":"most tokens to return (default 1000)"}},"required":["terms"]}},
 {"name":"recall","description":"Search what past agent conversations said, as ranked snippets. Evidence of what was said, not of what is true; a bullet from find outranks it.","inputSchema":{"type":"object","properties":{"terms":{"type":"string","description":"search terms"},"limit":{"type":"integer","description":"most snippets to return (default 10)"}},"required":["terms"]}},
 {"name":"pack","description":"The briefing to open a project with: the vault's bullets about it, terse, within a token budget, then its newest handoff and state folder.","inputSchema":{"type":"object","properties":{"project":{"type":"string","description":"project or repository name (default: the repository the server runs in)"},"budget":{"type":"integer","description":"most tokens to return (default 1500)"}}}},
 {"name":"propose","description":"Queue a bullet for the vault's inbox; a person approves it before it enters memory. Shape: - **handle** (aliases: what a searcher might type) — fact — source — YYYY-MM-DD. Source and date are filled in when left off.","inputSchema":{"type":"object","properties":{"bullet":{"type":"string","description":"the bullet line"}},"required":["bullet"]}},
@@ -136,11 +136,6 @@ mcp_argv :: proc(name: string, params: json.Value) -> (argv: []string, ok: bool)
 		flag := name == "find" ? "--budget" : "--limit"
 		if n, has := json_int(args, name == "find" ? "budget" : "limit"); has {
 			append(&a, flag, int_str(i64(n)))
-		}
-		if o, is_obj := args.(json.Object); is_obj && name == "find" {
-			if b, is_bool := o["notes"].(json.Boolean); is_bool && bool(b) {
-				append(&a, "--notes")
-			}
 		}
 	case "pack":
 		append(&a, "pack")

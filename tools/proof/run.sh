@@ -61,14 +61,14 @@ for r in $(seq 1 "$repeats"); do
       dir="$c"
       # brain-* conditions are brain with a knob turned: brain-notes returns
       # notes only when bullets fall short, brain-source keeps the source
-      # clause, brain-both does both; plain brain is the older behaviour.
+      # clause, brain-both does both; plain brain is the shipped behaviour.
       notes=always
       with_source=""
       case "$c" in
         brain) path="$work/bin:$path" ;;
-        brain-notes) dir=brain; path="$work/bin:$path"; notes=auto ;;
+        brain-notes) dir=brain; path="$work/bin:$path"; notes=short ;;
         brain-source) dir=brain; path="$work/bin:$path"; with_source=source ;;
-        brain-both) dir=brain; path="$work/bin:$path"; notes=auto; with_source=source ;;
+        brain-both) dir=brain; path="$work/bin:$path"; notes=short; with_source=source ;;
       esac
       (cd "$work/$dir" && env -i HOME="$work/home" PATH="$path" TERM=dumb LANG=C.UTF-8 \
           BRAIN_VAULT="$work/vault" BRAIN_STATE="$work/state" BRAIN_NO_UPDATE=1 \

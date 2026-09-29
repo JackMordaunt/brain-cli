@@ -253,12 +253,15 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	form := caller_id(cli) != "" ? Form.Terse : Form.Raw
 	budget := FIND_BYTES
-	// Notes (prose lines) come when the bullets fall short, fewer than two
-	// and none named outright, or on --notes. BRAIN_NOTES=always is the older behaviour and
-	// BRAIN_TERSE=source keeps the source clause; both exist so the proof can
-	// run them as conditions.
+	// Notes (prose lines) always follow the bullets. The proof measured the
+	// alternative, notes only when fewer than two bullets answered and none
+	// was named outright (BRAIN_NOTES=short): it lost five of eight answers
+	// that lived only in a note on sonnet and four of eight on opus, at twice
+	// the tokens, and gained nothing on the rest (2026-09-29). BRAIN_TERSE=
+	// source keeps the source clause in the terse form; it changed nothing
+	// measurable and stays as a knob the proof can run.
 	want_notes := false
-	notes_always := getenv(cli, "BRAIN_NOTES") == "always"
+	notes_short := getenv(cli, "BRAIN_NOTES") == "short"
 	with_source := getenv(cli, "BRAIN_TERSE") == "source"
 	terms := make([dynamic]string)
 	rest := args
@@ -308,7 +311,7 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	named: bool
 	hits, named = cut_to_exact(hits, raw)
 	docs: []Doc
-	if want_notes || notes_always || (len(hits) < 2 && !named) {
+	if want_notes || !notes_short || (len(hits) < 2 && !named) {
 		docs = query_lines(db, m.prose_and)
 		if len(docs) == 0 {
 			docs = query_lines(db, m.prose_or)
