@@ -79,6 +79,29 @@ index would start. Tokens are bytes over four.
 
 A query that names a bullet's handle outright returns that bullet and its
 near ties, not eight neighbours, and `--budget <tokens>` caps any answer.
+
+Measured on real sessions instead, with `just proof`: twelve questions each
+answerable from one bullet, asked of Claude Code with no notes, with the
+vault as plain markdown it must search itself, and through `brain`. Two
+repeats, 2026-09-29; tokens are everything the run processed.
+
+| model | condition | correct | tokens per question | turns |
+|-------|-----------|--------:|--------------------:|------:|
+| sonnet | no notes | 38% | 33,650 | 1.0 |
+| sonnet | plain markdown | 92% | 196,037 | 6.0 |
+| sonnet | `brain` | 92% | 72,411 | 2.2 |
+| opus | no notes | 46% | 25,322 | 1.1 |
+| opus | plain markdown | 100% | 113,870 | 5.4 |
+| opus | `brain` | 92% | 48,920 | 2.7 |
+| fable | no notes | 42% | 28,139 | 1.2 |
+| fable | plain markdown | 100% | 104,024 | 5.2 |
+| fable | `brain` | 88% | 51,641 | 2.8 |
+
+Notes make the agent right; `brain` makes that cost a third to a half of
+searching the files by hand. Haiku answered from training without looking
+in most runs under both notes conditions (54% and 62% correct), which is
+what the session hook is for: it pushes the repository's briefing into
+context instead of waiting for a lookup.
 Reading the three core files instead costs 60.3 KB, about 15,000 tokens,
 per lookup. The whole vault is about 176,000 tokens. `brain recall` keeps
 the same shape: five snippets for `hyprctl eval` came to 0.9 KB.
