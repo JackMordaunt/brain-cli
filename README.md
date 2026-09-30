@@ -160,3 +160,8 @@ just install ~/Documents/Brain
 
 [ARCHITECTURE.md](ARCHITECTURE.md) explains how the index, recall, hooks and
 updates work, and what each file in this repository is for.
+
+## Licence
+
+Apache-2.0; see [LICENSE](LICENSE) and [NOTICE](NOTICE). The brainfold name
+and mark are not covered; see [branding/README.md](branding/README.md).
