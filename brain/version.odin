@@ -17,11 +17,12 @@ VERSION :: #config(VERSION, "")
 // when the working tree had uncommitted changes; the justfile and the
 // release workflow pass it with -define:COMMIT, quoted so that a hash such
 // as 21e17ac is not read as a number, and commit_stamp strips the quotes.
-// A build made some other way says so.
+// release.yml's Windows build, under Git Bash, has delivered them escaped
+// (run 36720442466 reported the commit as \7642491\), so backslashes go too. A build made some other way says so.
 COMMIT :: #config(COMMIT, "")
 
 commit_stamp :: proc() -> string {
-	return strings.trim(COMMIT, "\"")
+	return strings.trim(COMMIT, "\"\\")
 }
 
 // Where releases are served. Any host that serves the asset, sha256sums.txt,

@@ -21,8 +21,12 @@ Fixture :: struct {
 }
 
 fixture :: proc(t: ^testing.T) -> Fixture {
-	root, err := path.temp_dir("brain-test-")
+	tmp, err := path.temp_dir("brain-test-")
 	testing.expect_value(t, err, nil)
+	// macOS's temp directory sits under a symlink (/var is /private/var), and
+	// the CLI reports resolved paths, so the fixture holds resolved ones too.
+	root, rerr := os.get_absolute_path(tmp, context.allocator)
+	testing.expect_value(t, rerr, nil)
 	f := Fixture {
 		root  = root,
 		vault = path.join(root, "vault"),

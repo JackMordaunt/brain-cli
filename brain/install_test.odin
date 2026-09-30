@@ -57,9 +57,15 @@ install_binds_a_home_and_the_installed_cli_names_the_checkout :: proc(t: ^testin
 	f.cli.env["GOPATH"] = ""
 	f.cli.env["GOBIN"] = ""
 	f.cli.env["PATH"] = ""
+	// install takes the first writable bin directory. On GitHub's runners
+	// /usr/local/bin is one (release.yml run 36720442466 installed there),
+	// and a home that has ~/.local/bin wins over it.
+	testing.expect_value(t, path.mkdirs(path.join(f.home, ".local", "bin")), nil)
 	cwd, _ := os.get_working_directory(context.allocator)
 	f.cli.env["BRAIN_EXE"] = path.join(cwd, "build", "debug", strings.concatenate({"brain", EXE}))
 	git(t, f.vault, "init", "-q")
+	agents_body := "# Agents\n\nfixture binding\n"
+	testing.expect_value(t, path.write(path.join(f.vault, "AI", "AGENTS.md"), agents_body), nil)
 
 	o, e, code := exec(f.cli, "install", "--dry-run", f.vault)
 	testing.expect_value(t, code, 0)
@@ -82,7 +88,10 @@ install_binds_a_home_and_the_installed_cli_names_the_checkout :: proc(t: ^testin
 	testing.expect(t, !strings.contains(pre, "installed=\"\""), "the marker was replaced")
 	testing.expect(t, !os.exists(path.join(f.cli.conf_dir, "shims")), "no shims: guards are not the tool's")
 	agents := path.join(f.home, ".agents", "AGENTS.md")
-	testing.expect(t, !os.exists(agents) || is_link(agents), "the agents file is a link when it is there at all")
+	// A link, or a copy where symlinks are refused; either reads as the vault's.
+	bound, berr := path.read(agents)
+	testing.expect_value(t, berr, nil)
+	testing.expect_value(t, bound, agents_body)
 	claude_md, _ := path.read(path.join(f.home, ".claude", "CLAUDE.md"))
 	testing.expect(t, strings.contains(claude_md, "brain:claude >>> managed by `brain install`"), claude_md)
 	testing.expect(t, strings.contains(claude_md, "`brain pack`") && strings.contains(claude_md, "`brain propose "), "the block tells the agent about pack and propose")
