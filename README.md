@@ -149,7 +149,9 @@ Bullets in the vault look like this, one fact each:
 
 ## Build from source
 
-Needs [Odin](https://odin-lang.org) and `just`.
+Needs [Odin](https://odin-lang.org) and `just`. CI builds with the Odin commit
+named by `ODIN_PIN` in `.github/workflows/release.yml`; other versions may not
+link.
 
 ```sh
 git clone https://mordaunt.dev/code/brainfold && cd brainfold
