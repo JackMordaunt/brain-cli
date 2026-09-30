@@ -47,6 +47,9 @@ fixture_cli :: proc(f: Fixture) -> ^Cli {
 	env["BRAIN_CALLER"] = ""
 	env["BRAIN_SESSION"] = ""
 	env["CLAUDECODE"] = ""
+	env["AI_AGENT"] = ""
+	env["CODEX_SANDBOX"] = ""
+	env["CODEX_SANDBOX_NETWORK_DISABLED"] = ""
 	env["CLAUDE_CODE_SESSION_ID"] = ""
 	env["BRAIN_TOOL"] = ""
 	return new_cli(env)
@@ -307,7 +310,15 @@ find_prints_terse_for_an_agent :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(o, "— 2026-01-01\n"), "the date closes it")
 	o, _, _ = exec(f.cli, "find", "sqlite", "--raw")
 	testing.expect(t, strings.contains(o, "(aliases:"), "--raw restores the line")
-	delete_key(&f.cli.env, "BRAIN_CALLER")
+	f.cli.env["BRAIN_CALLER"] = ""
+	f.cli.env["AI_AGENT"] = "pi"
+	o, _, _ = exec(f.cli, "find", "sqlite")
+	testing.expect(t, !strings.contains(o, "(aliases:"), "an agent known only by AI_AGENT does not")
+	testing.expect_value(t, caller_id(f.cli), "pi")
+	f.cli.env["AI_AGENT"] = ""
+	f.cli.env["CODEX_SANDBOX"] = "seatbelt"
+	testing.expect_value(t, caller_id(f.cli), "codex")
+	f.cli.env["CODEX_SANDBOX"] = ""
 	o, _, _ = exec(f.cli, "find", "sqlite", "--terse")
 	testing.expect(t, !strings.contains(o, "(aliases:"), "--terse asks for the short form")
 }

@@ -6,6 +6,8 @@ import "core:unicode/utf8"
 
 import "jm:sqlite3"
 
+import "../term"
+
 // Handle matches outrank body matches, so a bullet named **review** beats a
 // handoff that merely mentions the word.
 
@@ -207,7 +209,9 @@ query_lines :: proc(db: sqlite3.Db, match: string) -> []Doc {
 }
 
 // Who asked. Agents set BRAIN_CALLER/BRAIN_SESSION; Claude Code is recognised
-// from its own environment.
+// from its own environment, and any other agent term knows from its own:
+// AI_AGENT's value names it, and either of Codex's sandbox variables
+// being set names it codex.
 caller_id :: proc(cli: ^Cli) -> string {
 	if c := getenv(cli, "BRAIN_CALLER"); c != "" {
 		return c
@@ -215,7 +219,15 @@ caller_id :: proc(cli: ^Cli) -> string {
 	if getenv(cli, "CLAUDECODE") != "" {
 		return "claude"
 	}
-	return ""
+	switch term.agent(env_lookup, cli) {
+	case "":
+		return ""
+	case "AI_AGENT":
+		return getenv(cli, "AI_AGENT")
+	case "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED":
+		return "codex"
+	}
+	return "agent"
 }
 
 session_id :: proc(cli: ^Cli) -> string {

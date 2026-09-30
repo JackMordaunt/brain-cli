@@ -108,10 +108,12 @@ getenv :: proc(cli: ^Cli, key: string, def := "") -> string {
 // detect_style decides decoration from Cli's own environment, so a test's
 // overrides count; an agent always gets plain text.
 detect_style :: proc(cli: ^Cli, mode: term.Mode) -> term.Style {
-	lookup :: proc(key: string, data: rawptr) -> string {
-		return getenv((^Cli)(data), key)
-	}
-	return term.detect(cli.tty, mode, lookup, cli)
+	return term.detect(cli.tty, mode, env_lookup, cli)
+}
+
+// env_lookup is getenv as a term.Lookup, with the Cli as its data.
+env_lookup :: proc(key: string, data: rawptr) -> string {
+	return getenv((^Cli)(data), key)
 }
 
 // Where the tool is, in order of authority: BRAIN_TOOL in the environment,
