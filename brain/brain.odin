@@ -293,7 +293,8 @@ Keep it healthy
                              notes a newer bullet may have superseded
   brain log                  what keeps missing, and who asks
   brain ledger [--days N]    what lookups cost and saved, by caller, session and day
-  brain lint [--staged]      check bullet form; failures block a commit
+  brain lint [--staged]      check bullet form; failures block a commit; --strict,
+                             or the vault's .brain/policy, refuses text that steers agents
   brain secrets [--staged]   scan for credentials; --history, every commit
   brain reindex              rebuild the index from the markdown (automatic; rarely needed)
 Set up

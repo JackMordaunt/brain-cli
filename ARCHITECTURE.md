@@ -64,7 +64,17 @@ hold bullets of one fact each:
 ```
 
 `brain lint` enforces the trailing date and refuses a bullet carrying a
-literal credential. Everything else in the vault is prose, indexed line by
+literal credential. Since every bullet reaches an agent's context, lint and
+`brain propose` also refuse text that could steer one, with no model
+involved: always, invisible and direction-changing characters, control
+characters, fullwidth and mathematical letters, words mixing lookalike
+alphabets, and embedded images, on every line the index reads, the
+vocabulary included; and in a vault whose `.brain/policy` says `lint strict`
+(or with `--strict`), bullets carrying URLs, addresses, paths, markup,
+encoded runs, words addressing the reader, or wording that reads as an
+instruction, and vocabulary rows longer than four plain words. A staged
+check holds to the committed policy as well, so loosening it takes its own
+commit. Everything else in the vault is prose, indexed line by
 line, so handoffs and longer notes are findable too.
 
 The vault's vocabulary is `AI/synonyms.tsv`: tab-separated `term` and

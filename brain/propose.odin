@@ -102,6 +102,12 @@ propose_line :: proc(cli: ^Cli, line: string) -> int {
 	if !ok {
 		return fail(cli, strings.concatenate({"not a bullet: it needs `- **handle**`, a fact and a date; got: ", line}))
 	}
+	guard: Guard
+	guard_init(&guard, worktree_strict(cli.vault))
+	defer guard_destroy(&guard)
+	if why := guard_line(&guard, line); why != "" {
+		return fail(cli, strings.concatenate({"not proposed: the bullet ", why}))
+	}
 	dropped, _ := read_text(path.join(cli.vault, DROPPED_FILE))
 	for l in strings.split_lines(dropped) {
 		d, dok := parse_bullet(l, "")

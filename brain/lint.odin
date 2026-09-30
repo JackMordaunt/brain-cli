@@ -2,6 +2,7 @@ package brain
 
 import "core:fmt"
 import "core:os"
+import "core:strconv"
 import "core:strings"
 import "core:text/regex"
 import "core:time"
@@ -13,22 +14,39 @@ import "jm:sqlite3"
 
 // Hard failures block a commit. Warnings never do. A line that does not parse
 // is skipped rather than rejected, so the bullet format never becomes
-// load-bearing.
+// load-bearing, unless the vault is strict (see guard.odin). The inbox is
+// checked with the core files: under review after, a proposal answers finds
+// before any person has read it.
 
-// Checked is one line lint looks at: which file it belongs to and its text.
+// Checked is one line lint looks at: which file it belongs to, where, and
+// its text.
 Checked :: struct {
 	file, text: string,
+	line:       int,
 }
 
 cmd_lint :: proc(cli: ^Cli, args: []string) -> int {
 	if err := need_vault(cli); err != "" {
 		return fail(cli, err)
 	}
-	staged := false
+	staged, strict := false, worktree_strict(cli.vault)
 	rest := args
-	if len(rest) > 0 && rest[0] == "--staged" {
-		staged = true
+	for len(rest) > 0 && strings.has_prefix(rest[0], "--") {
+		switch rest[0] {
+		case "--staged":
+			staged = true
+		case "--strict":
+			strict = true
+		case:
+			return fail(cli, "usage: brain lint [--staged] [--strict] [<file>...]")
+		}
 		rest = rest[1:]
+	}
+	// A commit can tighten the policy but not loosen it: the staged check
+	// holds to the committed policy too, so dropping `lint strict` takes a
+	// commit of its own.
+	if staged && !strict {
+		strict = committed_strict(cli.vault)
 	}
 	lines: []Checked
 	if staged {
@@ -36,8 +54,11 @@ cmd_lint :: proc(cli: ^Cli, args: []string) -> int {
 	} else {
 		files := rest
 		if len(files) == 0 {
-			core := CORE
-			files = core[:]
+			md, _ := list_md(cli.vault)
+			all := make([dynamic]string)
+			append(&all, ..md)
+			append(&all, INBOX_FILE, SYNONYMS_FILE)
+			files = all[:]
 		}
 		lines = file_lines(cli.vault, files)
 	}
@@ -49,14 +70,22 @@ cmd_lint :: proc(cli: ^Cli, args: []string) -> int {
 	placeholder_re, _ := regex.create(`\$[A-Z_]{3,}|<[a-z]`)
 	key_re, _ := regex.create(`BEGIN [A-Z ]*PRIVATE KEY`)
 	today := today_iso()
+	guard: Guard
+	guard_init(&guard, strict)
+	defer guard_destroy(&guard)
 
 	findings := make([dynamic]Finding)
 	for l in lines {
-		if !is_core(l.file) || !strings.has_prefix(l.text, "- **") {
+		// Every line is indexed, so every line can reach an agent: the rules
+		// for hidden text read all of them, the rules for bullets only bullets.
+		at := Finding{file = fmt.aprintf("%s:%d", l.file, l.line)}
+		if l.file == SYNONYMS_FILE {
+			guard_synonym(&guard, at, l.text, &findings)
 			continue
 		}
 		handle, found := between(l.text, "- **", "**")
-		if !found || handle == "" {
+		if !(is_core(l.file) || l.file == INBOX_FILE) || !strings.has_prefix(l.text, "- **") || !found || handle == "" {
+			guard_text(at, l.text, &findings)
 			continue
 		}
 		date := trailing_date(l.text)
@@ -80,7 +109,8 @@ cmd_lint :: proc(cli: ^Cli, args: []string) -> int {
 		if matches(key_re, l.text) {
 			append(&findings, Finding{true, l.file, handle, "secret", "contains a private key"})
 		}
-		if n := utf8.rune_count_in_string(fact); n > MAXLEN {
+		guard_check(&guard, Finding{file = l.file, handle = handle}, l.text, &findings)
+		if n := utf8.rune_count_in_string(fact); n > MAXLEN && !strict {
 			append(&findings, Finding{false, l.file, handle, "length", fmt.aprintf("fact is %d chars (cap %d) — spill to an artifact and point at it", n, MAXLEN)})
 		}
 		if !strings.contains(header, "(") {
@@ -132,6 +162,8 @@ cmd_lint :: proc(cli: ^Cli, args: []string) -> int {
 	for f in findings {
 		if f.file == "" {
 			outf(cli, "warn %s: **%s**\n", f.message, f.handle)
+		} else if f.handle == "" {
+			outf(cli, "%s %s: %s\n", f.fail ? "FAIL" : "warn", f.file, f.message)
 		} else {
 			outf(cli, "%s %s: **%s** %s\n", f.fail ? "FAIL" : "warn", f.file, f.handle, f.message)
 		}
@@ -151,18 +183,25 @@ Finding :: struct {
 // tagged with its file.
 staged_lines :: proc(vault: string) -> []Checked {
 	r := sh.exec(
-		{"git", "diff", "--cached", "-U0", "--src-prefix=a/", "--dst-prefix=b/", "--", "*.md"},
+		{"git", "diff", "--cached", "-U0", "--src-prefix=a/", "--dst-prefix=b/", "--", "*.md", SYNONYMS_FILE},
 		{dir = vault},
 	)
 	lines := make([dynamic]Checked)
 	file := ""
+	at := 0
 	rest := r.stdout
 	for raw in strings.split_lines_iterator(&rest) {
 		line := strings.trim_suffix(raw, "\r")
 		if strings.has_prefix(line, "+++ b/") {
 			file = line[len("+++ b/"):]
+		} else if strings.has_prefix(line, "@@ ") {
+			// @@ -a,b +c,d @@: the added lines start at line c.
+			if plus, ok := between(line, " +", " "); ok {
+				at, _ = strconv.parse_int(strings.split(plus, ",")[0])
+			}
 		} else if strings.has_prefix(line, "+") && !strings.has_prefix(line, "++") {
-			append(&lines, Checked{file = file, text = line[1:]})
+			append(&lines, Checked{file = file, text = line[1:], line = at})
+			at += 1
 		}
 	}
 	return lines[:]
@@ -177,8 +216,10 @@ file_lines :: proc(vault: string, files: []string) -> []Checked {
 			continue
 		}
 		rest := string(data)
+		n := 0
 		for raw in strings.split_lines_iterator(&rest) {
-			append(&lines, Checked{file = f, text = strings.trim_suffix(raw, "\r")})
+			n += 1
+			append(&lines, Checked{file = f, text = strings.trim_suffix(raw, "\r"), line = n})
 		}
 	}
 	return lines[:]
