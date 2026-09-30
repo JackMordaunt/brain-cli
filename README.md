@@ -15,7 +15,7 @@
 </picture>
 
 ```sh
-curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
+curl -fsSL https://mordaunt.dev/code/brainfold/install.sh | sh
 ```
 
 <picture>
@@ -24,7 +24,7 @@ curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
 </picture>
 
 ```sh
-curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
+curl -fsSL https://mordaunt.dev/code/brainfold/install.sh | sh
 ```
 
 <picture>
@@ -33,7 +33,7 @@ curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
 </picture>
 
 ```powershell
-irm https://mordaunt.dev/code/brain-cli/install.ps1 | iex
+irm https://mordaunt.dev/code/brainfold/install.ps1 | iex
 ```
 
 Each one downloads the release for your machine, checks its hash, puts
@@ -152,7 +152,7 @@ Bullets in the vault look like this, one fact each:
 Needs [Odin](https://odin-lang.org) and `just`.
 
 ```sh
-git clone https://mordaunt.dev/code/brain-cli && cd brain-cli
+git clone https://mordaunt.dev/code/brainfold && cd brainfold
 just install ~/Documents/Brain
 ```
 

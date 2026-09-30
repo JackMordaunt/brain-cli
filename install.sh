@@ -5,8 +5,8 @@
 # BRAIN_VAULT, else the one already recorded, else ~/Documents/Brain,
 # created if absent.
 #
-#   curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh
-#   curl -fsSL https://mordaunt.dev/code/brain-cli/install.sh | sh -s -- <vault>
+#   curl -fsSL https://mordaunt.dev/code/brainfold/install.sh | sh
+#   curl -fsSL https://mordaunt.dev/code/brainfold/install.sh | sh -s -- <vault>
 #
 # BRAIN_VERSION pins a release tag; BRAIN_BINDIR picks the directory
 # (default ~/.local/bin); BRAIN_RELEASE_BASE overrides the download URL.
@@ -18,9 +18,9 @@ fail() { printf 'install: %s\n' "$*" >&2; exit 1; }
 base=${BRAIN_RELEASE_BASE:-}
 if [ -z "$base" ]; then
   if [ -n "${BRAIN_VERSION:-}" ]; then
-    base="https://github.com/JackMordaunt/brain-cli/releases/download/$BRAIN_VERSION"
+    base="https://github.com/JackMordaunt/brainfold/releases/download/$BRAIN_VERSION"
   else
-    base="https://github.com/JackMordaunt/brain-cli/releases/latest/download"
+    base="https://github.com/JackMordaunt/brainfold/releases/latest/download"
   fi
 fi
 

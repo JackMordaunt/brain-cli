@@ -4,7 +4,7 @@
 # BRAIN_VAULT, else the one already recorded, else ~/Documents/Brain,
 # created if absent.
 #
-#   irm https://mordaunt.dev/code/brain-cli/install.ps1 | iex
+#   irm https://mordaunt.dev/code/brainfold/install.ps1 | iex
 #
 # Run through iex it takes no arguments, so BRAIN_VAULT names the vault, and
 # it must never `exit`, which would close the caller's shell; errors are
@@ -19,9 +19,9 @@
   $base = $env:BRAIN_RELEASE_BASE
   if (-not $base) {
     $base = if ($env:BRAIN_VERSION) {
-      "https://github.com/JackMordaunt/brain-cli/releases/download/$env:BRAIN_VERSION"
+      "https://github.com/JackMordaunt/brainfold/releases/download/$env:BRAIN_VERSION"
     } else {
-      'https://github.com/JackMordaunt/brain-cli/releases/latest/download'
+      'https://github.com/JackMordaunt/brainfold/releases/latest/download'
     }
   }
   $arch = if ("$env:PROCESSOR_ARCHITECTURE $env:PROCESSOR_ARCHITEW6432" -match 'ARM64') { 'arm64' } else { 'amd64' }

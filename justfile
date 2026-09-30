@@ -140,7 +140,7 @@ install VAULT: release
 # jm's tools/hot-watch because that build omits the C++ runtime Blend2D
 # needs on Linux. GNU stat and date; Linux and macOS with coreutils.
 # Under Hyprland the window opens on the project's workspace, named
-# <parent>/<repo> the way the rest of the desktop is (Personal/brain-cli),
+# <parent>/<repo> the way the rest of the desktop is (Personal/brainfold),
 # or on LOGO_WORKSPACE when set; the rule lives for the session only.
 #
 # Open DIR's child in a hot-reloading window titled TITLE

@@ -26,7 +26,7 @@ commit_stamp :: proc() -> string {
 // one. BRAIN_RELEASE_BASE overrides it. install.sh and install.ps1 repeat
 // it, since they run before any binary exists; just test-installer checks
 // that all three agree.
-RELEASE_BASE :: "https://github.com/JackMordaunt/brain-cli/releases/latest/download"
+RELEASE_BASE :: "https://github.com/JackMordaunt/brainfold/releases/latest/download"
 
 // ASSET is this build's file name in a release.
 when ODIN_OS == .Windows {
