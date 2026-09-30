@@ -226,6 +226,34 @@ version_and_update_on_a_development_build :: proc(t: ^testing.T) {
 	testing.expect(t, selfupdate.key_from_hex(PUBLIC_KEY, key[:]), "the embedded public key decodes")
 }
 
+// A found update is remembered, so the hint repeats on every run until an
+// update or a later check clears it, and a failed check still counts as the
+// day's check.
+@(test)
+update_hint_is_remembered_until_cleared :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	testing.expect_value(t, update_hint(f.cli), "")
+
+	r: selfupdate.Result
+	r.outcome = .Update_Available
+	r.version_len = copy(r.version_buf[:], "dev-2026-10")
+	remember_check(f.cli, &r)
+	testing.expect_value(t, update_hint(f.cli), "brain dev-2026-10 is available; run `brain update`")
+	r.outcome = .Skipped
+	remember_check(f.cli, &r)
+	testing.expect_value(t, update_hint(f.cli), "brain dev-2026-10 is available; run `brain update`")
+
+	r.outcome = .Up_To_Date
+	remember_check(f.cli, &r)
+	testing.expect_value(t, update_hint(f.cli), "")
+
+	r.outcome = .Failed
+	remember_check(f.cli, &r)
+	testing.expect(t, os.exists(path.join(f.state, selfupdate.STAMP_FILE)), "a failed check stamps the day")
+}
+
 @(test)
 find_reads_a_crlf_vault :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator

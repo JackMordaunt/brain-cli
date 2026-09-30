@@ -39,10 +39,13 @@ when the binary was copied.
 A release binary keeps itself current. `brain update` fetches the latest
 release, verifies the Ed25519 signature on its checksum file with the key
 compiled into the binary, checks the download against that file, keeps the
-old binary as `brain.old`, swaps the new one in and runs it. Once a day,
-when run at a terminal, `brain` says on stderr that an update exists; it
-never downloads on its own, and hooks, agents and pipes never see the
-notice. `BRAIN_NO_UPDATE=1` silences it. `brain version` prints the build's
+old binary as `brain.old`, swaps the new one in and runs it. At a terminal,
+`brain` checks for a release once a day, with a 3 s timeout, and after
+the command's output says on stderr that one is waiting, on every run
+until `brain update`; the finding is kept in the state directory. It never
+downloads on its own, a failed check waits a day like any other, and hooks,
+agents and pipes never see the notice. `BRAIN_NO_UPDATE=1` silences it.
+`brain version` prints the build's
 tag, or `dev` for a local build, which never updates itself, and the commit
 it was built from, with `-dirty` when the tree had uncommitted changes; the
 justfile and the release workflow pass it as `-define:COMMIT`.

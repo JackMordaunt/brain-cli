@@ -22,11 +22,15 @@ main :: proc() {
 	context = prelude.init({name = "brain"})
 	cli := brain.new_cli()
 	code := brain.run(cli, os.args[1:])
-	if len(os.args) < 2 || os.args[1] != "update" {
-		brain.notify_update(cli)
-	}
 	os.write_string(os.stdout, strings.to_string(cli.out))
 	os.write_string(os.stderr, strings.to_string(cli.err))
+	// The update hint follows the command's output, so a slow check never
+	// holds the answer back.
+	if len(os.args) < 2 || os.args[1] != "update" {
+		strings.builder_reset(&cli.err)
+		brain.notify_update(cli)
+		os.write_string(os.stderr, strings.to_string(cli.err))
+	}
 	if code != 0 {
 		prelude.exit(code)
 	}

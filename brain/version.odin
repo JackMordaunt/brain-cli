@@ -1,8 +1,11 @@
 package brain
 
+import "core:fmt"
 import "core:os"
 import "core:strings"
+import "core:time"
 
+import "jm:path"
 import "jm:selfupdate"
 
 // VERSION is the release tag, baked in by the release workflow with
@@ -85,6 +88,7 @@ update_config :: proc(cli: ^Cli, mode: selfupdate.Mode) -> selfupdate.Config {
 // up to date.
 cmd_update :: proc(cli: ^Cli, args: []string) -> int {
 	r := selfupdate.run(update_config(cli, .Apply))
+	remember_check(cli, &r)
 	switch r.outcome {
 	case .Up_To_Date:
 		outf(cli, "brain %s is up to date\n", VERSION)
@@ -98,15 +102,56 @@ cmd_update :: proc(cli: ^Cli, args: []string) -> int {
 	return 0
 }
 
-// notify_update tells a person at a terminal that a newer release exists,
-// at most once a day. It is silent for hooks, agents and pipes, where
-// stderr is not a terminal, and whenever BRAIN_NO_UPDATE is set.
+// UPDATE_FILE holds the version the last daily check found newer than this
+// build, so the hint repeats on every run until `brain update` while the
+// network is asked at most once a day.
+UPDATE_FILE :: "update-available"
+
+// NOTIFY_TIMEOUT bounds each download of the daily check; a person is waiting.
+NOTIFY_TIMEOUT :: 3 * time.Second
+
+// notify_update tells a person at a terminal that a newer release is out,
+// after the command's own output. It is silent for hooks, agents and pipes,
+// where stderr is not a terminal, and whenever BRAIN_NO_UPDATE is set.
 notify_update :: proc(cli: ^Cli) {
 	if VERSION == "" || getenv(cli, "BRAIN_NO_UPDATE") != "" || !os.is_tty(os.stderr) {
 		return
 	}
-	r := selfupdate.run(update_config(cli, .Notify))
-	if r.outcome == .Update_Available {
-		errf(cli, "brain: %s (run `brain update`)\n", selfupdate.message(&r))
+	cfg := update_config(cli, .Notify)
+	cfg.timeout = NOTIFY_TIMEOUT
+	r := selfupdate.run(cfg)
+	remember_check(cli, &r)
+	if hint := update_hint(cli); hint != "" {
+		errf(cli, "%s\n", hint)
 	}
+}
+
+// remember_check keeps what a check learned. A failed check still counts as
+// the day's check, so an offline machine waits a day rather than stalling
+// every run on the timeout.
+remember_check :: proc(cli: ^Cli, r: ^selfupdate.Result) {
+	avail := path.join(cli.state, UPDATE_FILE)
+	switch r.outcome {
+	case .Update_Available:
+		path.mkdirs(cli.state)
+		v := selfupdate.version(r)
+		path.write(avail, v == "" ? "a newer release" : v)
+	case .Up_To_Date, .Applied:
+		os.remove(avail)
+	case .Failed:
+		path.mkdirs(cli.state)
+		path.write(path.join(cli.state, selfupdate.STAMP_FILE), "")
+	case .Skipped, .Refused:
+	}
+}
+
+// update_hint is the line a person sees while a newer release is waiting,
+// or "" when none is.
+update_hint :: proc(cli: ^Cli) -> string {
+	v, err := path.read(path.join(cli.state, UPDATE_FILE))
+	v = strings.trim_space(v)
+	if err != nil || v == "" || v == VERSION {
+		return ""
+	}
+	return fmt.aprintf("brain %s is available; run `brain update`", v)
 }
