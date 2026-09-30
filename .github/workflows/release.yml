@@ -122,11 +122,16 @@ jobs:
           BRAIN_VAULT=testdata/vault BRAIN_STATE="$RUNNER_TEMP/state" build/release/${{ matrix.asset }} find sqlite
       # The package's tests and the installer tests, as `just test` runs them
       # locally, on every runner that can run what it builds. The publish job
-      # needs every build, so a tag whose tests fail never ships.
+      # needs every build, so a tag whose tests fail never ships. Windows runs
+      # them without the address sanitizer: its HeapSize hook aborts inside
+      # combase.dll and windows.storage.dll, on memory Windows allocated
+      # itself (run 36725142759).
       - name: test
         if: matrix.target != 'darwin_amd64'
         shell: bash
-        run: just test
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then export SAN=; fi
+          just test
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
