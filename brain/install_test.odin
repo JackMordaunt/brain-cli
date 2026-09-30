@@ -95,7 +95,8 @@ install_binds_a_home_and_the_installed_cli_names_the_checkout :: proc(t: ^testin
 	claude_md, _ := path.read(path.join(f.home, ".claude", "CLAUDE.md"))
 	testing.expect(t, strings.contains(claude_md, "brain:claude >>> managed by `brain install`"), claude_md)
 	testing.expect(t, strings.contains(claude_md, "`brain pack`") && strings.contains(claude_md, "`brain propose "), "the block tells the agent about pack and propose")
-	bashrc, _ := path.read(path.join(f.home, ".bashrc"))
+	// install writes the PATH block where the platform's shells read it.
+	bashrc, _ := path.read(path.join(f.home, ODIN_OS == .Darwin ? ".zshenv" : ".bashrc"))
 	testing.expect(t, strings.contains(bashrc, "brain:path >>>") && !strings.contains(bashrc, "brain:guards >>>"), bashrc)
 	// Git Bash splits PATH on the colon, so a C:\ path in .bashrc is broken.
 	testing.expect(t, !strings.contains(bashrc, ":\\"), bashrc)
