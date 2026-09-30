@@ -22,13 +22,17 @@ pre_commit_gate_fires_from_outside_the_repo :: proc(t: ^testing.T) {
 	git(t, f.vault, "init", "-q")
 	git(t, f.vault, "config", "core.hooksPath", path.join(cwd, "bin", "hooks"))
 	git(t, f.vault, "add", "-A")
-	r := sh.exec({"git", "-c", "user.email=t@example.com", "-c", "user.name=test", "commit", "-q", "-m", "clean"}, {dir = f.vault})
+	// The hooks run a real brain; without the fixture's state, post-commit's
+	// reindex rebuilds the user's own index from the fixture vault.
+	env := child_env(f)
+	r := sh.exec({"git", "-c", "user.email=t@example.com", "-c", "user.name=test", "commit", "-q", "-m", "clean"}, {dir = f.vault, env = env})
 	testing.expect(t, r.ok, sh.error(r))
+	testing.expect(t, os.exists(f.cli.db), "post-commit did not reindex into the fixture's state")
 
 	mem := path.join(f.vault, "AI", "MEMORY.md")
 	testing.expect_value(t, path.append_file(mem, "- **undated** (aliases: x) — a bullet with no trailing date — fixture\n"), nil)
 	git(t, f.vault, "add", "-A")
-	r = sh.exec({"git", "-c", "user.email=t@example.com", "-c", "user.name=test", "commit", "-q", "-m", "probe"}, {dir = f.vault})
+	r = sh.exec({"git", "-c", "user.email=t@example.com", "-c", "user.name=test", "commit", "-q", "-m", "probe"}, {dir = f.vault, env = env})
 	testing.expect(t, !r.ok, "pre-commit let an undated bullet through")
 	// git hands a hook's stdout to the terminal as stderr.
 	said := strings.concatenate({r.stdout, r.stderr})
