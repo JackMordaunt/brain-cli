@@ -82,7 +82,7 @@ LOOKUPS := [?]Lookup {
 	{"13:55", "pi", "find", "hyprland window rule", 3, 1843},
 	{"13:41", "codex", "find", "sqlite fts5", 3, 1606},
 	{"13:40", "claude", "find", "rig-performance", 0, 0},
-	{"12:02", "claude", "find", "brain-cli", 7, 4393},
+	{"12:02", "claude", "find", "brainfold", 7, 4393},
 	{"11:47", "pi", "find", "systemd user unit", 3, 2443},
 	{"11:30", "claude", "recall", "logo lab", 0, 0},
 	{"10:12", "codex", "find", "review must-fix", 4, 2210},
@@ -133,7 +133,7 @@ TURNS := [?]Turn {
 	{"2026-09-28", "claude", "Project logo design with jm:ui", "… on Hyprland 0.56 `hyprctl keyword windowrule` is rejected (\"Use eval\"); a session-only rule is `hyprctl eval \"hl.window_rule({…})\"` …"},
 	{"2026-09-22", "pi", "Dedicated workspace per project", "Found the Omarchy 2.x runtime-rule pattern: `[hyprctl eval] 'hl.workspace_rule({...})'`. Verifying …"},
 	{"2026-09-22", "pi", "Named workspace scrolling mode not applying", "… `hl.workspace_rule({ workspace = \"-1340\", layout = \"scrolling\" })` # ok — tiledLayout stays \"dwindle\" …"},
-	{"2026-09-26", "codex", "Port brain-cli to Odin", "… recall --sync over the 103 Claude transcripts on this machine takes 0.7 s …"},
+	{"2026-09-26", "codex", "Port brain to Odin", "… recall --sync over the 103 Claude transcripts on this machine takes 0.7 s …"},
 }
 
 Proposal :: struct {
@@ -142,8 +142,8 @@ Proposal :: struct {
 
 PROPOSALS := [?]Proposal {
 	{"**jm run_host events dangling** (aliases: sdl host segfault) — Host_Loop.events lived in context.temp_allocator, freed each frame; make it on the default allocator — jm/ui/sdl/host.odin — 2026-09-28", "claude", "Project logo design with jm:ui", "AI/LEARNINGS.md"},
-	{"**hyprctl runtime window rule** (aliases: hyprctl keyword windowrule) — `hyprctl keyword` is rejected on the Lua parser; use `hyprctl eval \"hl.window_rule({…})\"` — brain-cli justfile — 2026-09-28", "claude", "Project logo design with jm:ui", "AI/LEARNINGS.md"},
-	{"**brainfold** (aliases: brain, brain-cli product name) — the product is brainfold, the command stays brain — naming session — 2026-09-28", "claude", "Project logo design with jm:ui", "AI/MEMORY.md"},
+	{"**hyprctl runtime window rule** (aliases: hyprctl keyword windowrule) — `hyprctl keyword` is rejected on the Lua parser; use `hyprctl eval \"hl.window_rule({…})\"` — brainfold justfile — 2026-09-28", "claude", "Project logo design with jm:ui", "AI/LEARNINGS.md"},
+	{"**brainfold** (aliases: brain, product name) — the product is brainfold, the command stays brain — naming session — 2026-09-28", "claude", "Project logo design with jm:ui", "AI/MEMORY.md"},
 }
 
 Remote :: struct {

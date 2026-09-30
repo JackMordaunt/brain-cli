@@ -6,7 +6,7 @@ libgit2-ties	With GIT_SORT_TIME alone, what goes wrong in libgit2's revwalk for 
 fzf-with-nth	In fzf with --with-nth, can a trailing hidden column carry extra text for matching? Which flag takes filtering away from fzf so a picker can rank rows itself?	--disabled	bullet
 hyprland-class	Why does a Hyprland window rule whose class regex is ^chrome-web\.whatsapp\.com fail to match the class chrome-web.whatsapp.com__-Default, and how should the regex be written?	whole class|\.\*|entire (class|string)	bullet
 mpv-mpris	On my machine, why does mpv hang before it even opens a URL when --audio-client-name contains a space?	mpris|d-bus|dbus|g_bus_own_name	bullet
-install-one-liner	What is the one-line shell command that installs brain-cli on Linux?	mordaunt\.dev/code/brain-cli/install\.sh	bullet
+install-one-liner	What is the one-line shell command that installs brainfold on Linux?	mordaunt\.dev/code/brainfold/install\.sh	bullet
 brainfold-voice	What words should brainfold's product surfaces use instead of git vocabulary, and where is git revealed for the curious?	sync|outcome	bullet
 odin-allocation	What is the jm memory style for lightweight helper code in Odin: when is dynamic allocation acceptable?	allocation-free|stack buffer|fixed buffer	bullet
 busctl-buffer	Why does busctl monitor show nothing when piped into a while-read loop, and what command prefix fixes the buffering?	stdbuf	bullet

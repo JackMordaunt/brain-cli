@@ -64,7 +64,7 @@ What a bare folder does not give an agent, brain layers on top:
 
 ## What a search costs
 
-Measured on a working vault of 105 files, 705 KB, as an agent sees it: one
+Measured on a working vault of 115 files, 826 KB, as an agent sees it: one
 line per hit with the handle, the fact and the date, since the aliases and
 source only cost context. A terminal gets the line as written. The grep
 columns search for the query's first word, the way an agent without an
@@ -72,10 +72,10 @@ index would start. Tokens are bytes over four.
 
 | query | `brain find` | `grep -ri` over `AI/*.md` | `grep -ri` over the vault |
 |-------|-------------:|--------------------------:|--------------------------:|
-| `hyprland window rule` | 1.5 KB, ~380 tokens | 4.3 KB | 7.9 KB |
-| `jm hot-watch` | 0.8 KB, ~200 tokens | 21.6 KB | 59.7 KB |
-| `sqlite fts5` | 1.3 KB, ~340 tokens | 6.3 KB | 19.9 KB |
-| `brain-cli` | 3.6 KB, ~900 tokens | 9.9 KB | 16.0 KB |
+| `hyprland window rule` | 1.5 KB, ~370 tokens | 4.3 KB | 8.1 KB |
+| `jm hot-watch` | 1.2 KB, ~300 tokens | 27.6 KB | 72.5 KB |
+| `sqlite fts5` | 1.5 KB, ~370 tokens | 6.3 KB | 20.3 KB |
+| `brainfold` | 1.0 KB, ~240 tokens | 0.5 KB | 10.2 KB |
 
 A query that names a bullet's handle outright returns that bullet and its
 near ties, not eight neighbours, and `--budget <tokens>` caps any answer.
