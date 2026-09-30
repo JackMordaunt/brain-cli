@@ -423,17 +423,21 @@ pack_infers_the_project_from_the_working_directory :: proc(t: ^testing.T) {
 	testing.expect_value(t, scalar_text(db, "select q from queries order by id desc limit 1"), "pack fixture")
 }
 
-// A proposal is completed, queued in the inbox, invisible to find until a
-// person approves it into a core file, and gone once dropped.
+// Under review before, a proposal is completed, queued in the inbox,
+// invisible to find until a person approves it into a core file, and gone
+// once dropped.
 @(test)
 propose_queues_and_inbox_approves :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
 	f := fixture(t)
 	defer fixture_destroy(f)
 	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
-	o, _, code := exec(f.cli, "propose", "- **new thing** (aliases: nt) — a fact an agent learned")
+	o, _, code := exec(f.cli, "review", "before")
 	testing.expect_value(t, code, 0)
-	testing.expect(t, strings.has_prefix(o, "proposed #1 **new thing**"), o)
+	testing.expect(t, strings.has_prefix(o, "review before:"), o)
+	o, _, code = exec(f.cli, "propose", "- **new thing** (aliases: nt) — a fact an agent learned")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "proposed #1 **new thing**; a person approves it"), o)
 	inbox, _ := path.read(path.join(f.vault, INBOX_FILE))
 	testing.expect(t, strings.contains(inbox, "— a fact an agent learned — fixture-agent — "), "source filled in")
 	tail := strings.trim_space(inbox)
@@ -466,6 +470,54 @@ propose_queues_and_inbox_approves :: proc(t: ^testing.T) {
 	o, _, _ = exec(f.cli, "inbox")
 	testing.expect_value(t, o, "inbox empty\n")
 	_, _, code = exec(f.cli, "inbox", "approve", "1")
+	testing.expect_value(t, code, 1)
+}
+
+// Under review after, the default, a proposal answers find at once and is
+// marked unreviewed, loses a tie to a reviewed bullet, and stops answering
+// once dropped; a dropped fact cannot be proposed again, a corrected one
+// can, and switching to before hides the inbox without a manual reindex.
+@(test)
+propose_answers_at_once_until_dropped :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	o, _, code := exec(f.cli, "review")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "review after:"), o)
+	o, _, code = exec(f.cli, "propose", "- **zebra crossing** (aliases: zc) — a wrong fact")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "proposed #1 **zebra crossing**; it answers finds now"), o)
+	o, _, code = exec(f.cli, "find", "zebra", "crossing")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "AI/INBOX.md:7 (unreviewed) **zebra crossing** — a wrong fact"), o)
+	o, _, code = exec(f.cli, "--json", "find", "zebra", "crossing")
+	testing.expect(t, strings.contains(o, `"reviewed":false`), o)
+	learn, _ := path.read(path.join(f.vault, "AI", "LEARNINGS.md"))
+	testing.expect_value(t, path.write(path.join(f.vault, "AI", "LEARNINGS.md"), strings.concatenate({learn, "- **zebra crossing** (aliases: zc) — a wrong fact — someone — 2026-01-05\n"})), nil)
+	o, _, _ = exec(f.cli, "find", "zebra", "crossing")
+	testing.expect(t, strings.has_prefix(o, "AI/LEARNINGS.md:"), "a reviewed bullet wins the tie")
+	testing.expect_value(t, path.write(path.join(f.vault, "AI", "LEARNINGS.md"), learn), nil)
+	o, _, code = exec(f.cli, "inbox", "drop", "1")
+	testing.expect_value(t, code, 0)
+	_, _, code = exec(f.cli, "find", "zebra", "crossing")
+	testing.expect_value(t, code, 1)
+	dropped, _ := path.read(path.join(f.vault, DROPPED_FILE))
+	testing.expect(t, strings.contains(dropped, "- **zebra crossing** (aliases: zc) — a wrong fact — fixture-agent — "), dropped)
+	o, _, code = exec(f.cli, "propose", "- **zebra crossing** — a wrong fact")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "a person dropped this fact before"), o)
+	o, _, _ = exec(f.cli, "inbox")
+	testing.expect_value(t, o, "inbox empty\n")
+	o, _, code = exec(f.cli, "propose", "- **zebra crossing** — the right fact")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, "proposed #1"), o)
+	o, _, code = exec(f.cli, "find", "zebra", "crossing")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "(unreviewed) **zebra crossing** — the right fact"), o)
+	testing.expect_value(t, path.write(path.join(f.home, ".config", "brain", "review"), "before\n"), nil)
+	_, _, code = exec(f.cli, "find", "zebra", "crossing")
 	testing.expect_value(t, code, 1)
 }
 
@@ -607,6 +659,7 @@ every_state_command_speaks_json :: proc(t: ^testing.T) {
 		{"pack", "project", "\"sqlite\""},
 		{"propose - **json thing** — a fact", "status", "\"proposed\""},
 		{"inbox", "proposals", "array"},
+		{"review", "review", "\"after\""},
 		{"inbox approve 1", "action", "\"approved\""},
 		{"export claude cursor", "project", "\"sqlite\""},
 		{"doctor", "queries_logged", "number"},

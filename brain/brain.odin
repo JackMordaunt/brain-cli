@@ -187,6 +187,8 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_propose(cli, rest)
 	case "inbox":
 		return cmd_inbox(cli, rest)
+	case "review":
+		return cmd_review(cli, rest)
 	case "mcp":
 		return cmd_mcp(cli, rest)
 	case "export":
@@ -253,8 +255,10 @@ Ask
   brain recall <terms...>    what past agent conversations said; --limit N, --full <id>,
                              --sessions, --prefix, --enable <agent>, --sources
 Remember
-  brain propose '<bullet>'   queue a fact for a person to approve
-  brain inbox                what is waiting; approve <n> [--to LEARNINGS], drop <n>
+  brain propose '<bullet>'   add a fact for a person to review
+  brain inbox                what is unreviewed; approve <n> [--to LEARNINGS], drop <n>
+  brain review [after|before]  after (default): a proposal answers finds at once, marked
+                             unreviewed, until dropped; before: only once approved
   brain import claude        propose what Claude Code remembered on its own; or <file.md>
 Share
   brain export <agent>...    give this repository's briefing to an agent: claude, agents (codex,

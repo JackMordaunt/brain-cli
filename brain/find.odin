@@ -97,7 +97,7 @@ Hit :: struct {
 }
 
 // query_fts returns the best bullets for a match string, up to limit.
-// Equal scores fall to the newer bullet.
+// Equal scores fall to a reviewed bullet, then to the newer one.
 query_fts :: proc(db: sqlite3.Db, match: string, limit := FIND_LIMIT) -> []Hit {
 	hits := make([dynamic]Hit)
 	stmt, err := sqlite3.query(
@@ -106,7 +106,7 @@ query_fts :: proc(db: sqlite3.Db, match: string, limit := FIND_LIMIT) -> []Hit {
 		        bm25(bullets_fts, 10.0, 6.0, 1.0) as score
 		 from bullets_fts f join bullets b on b.id = f.rowid
 		 where bullets_fts match ?
-		 order by score, b.date desc
+		 order by score, b.file = 'AI/INBOX.md', b.date desc
 		 limit ?`,
 		match,
 		i64(limit),
@@ -192,7 +192,7 @@ query_lines :: proc(db: sqlite3.Db, match: string) -> []Doc {
 		`select l.file || ':' || l.line, substr(l.text,1,200)
 		 from lines_fts f join lines l on l.id = f.rowid
 		 where lines_fts match ?
-		   and l.file not in ('AI/MEMORY.md','AI/LEARNINGS.md','AI/TUNINGS.md')
+		   and l.file not in ('AI/MEMORY.md','AI/LEARNINGS.md','AI/TUNINGS.md','AI/INBOX.md')
 		 order by bm25(lines_fts) limit 5`,
 		match,
 	)
@@ -237,6 +237,9 @@ Form :: enum {
 // terse form: the line's provenance, at 5 to 10 percent more of a bullet.
 format_hit :: proc(h: Hit, form: Form, with_source := false) -> string {
 	loc := strings.concatenate({h.file, ":", int_str(h.line)})
+	if h.file == INBOX_FILE {
+		loc = strings.concatenate({loc, " ", UNREVIEWED})
+	}
 	body := h.fact != "" ? h.fact : h.source
 	if form == .Terse && body != "" {
 		if with_source && h.fact != "" && h.source != "" {

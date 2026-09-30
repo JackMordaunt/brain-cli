@@ -445,7 +445,7 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 	return cmd_reindex(cli, nil)
 }
 
-CLAUDE_BLOCK :: "@~/.agents/AGENTS.md\n\nThe Brain is this machine's shared agent memory. `brain locate` prints its path,\n`brain find <handle>` searches it, and `brain recall <terms>` searches what was\nsaid in past agent conversations. Do not hard-code the path. A session opens\nwith `brain pack`, the vault's bullets about this repository. When work settles\na durable fact, `brain propose '- **handle** (aliases: ...) — fact'` queues it\nfor a person to approve; never edit the vault's core files directly."
+CLAUDE_BLOCK :: "@~/.agents/AGENTS.md\n\nThe Brain is this machine's shared agent memory. `brain locate` prints its path,\n`brain find <handle>` searches it, and `brain recall <terms>` searches what was\nsaid in past agent conversations. Do not hard-code the path. A session opens\nwith `brain pack`, the vault's bullets about this repository. When work settles\na durable fact, `brain propose '- **handle** (aliases: ...) — fact'` records it\nfor a person to review; never edit the vault's core files directly."
 
 // install_binary puts this executable on PATH as `brain`. A symlink keeps an
 // installed command current with its checkout; where links are refused

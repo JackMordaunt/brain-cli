@@ -112,7 +112,9 @@ the same shape: five snippets for `hyprctl eval` came to 0.9 KB.
 brain find <terms...>     search the vault; --budget <tokens> caps the answer
 brain pack [<project>]    the briefing to open a project with, cached until the vault changes;
                           installed as a Claude Code SessionStart hook
-brain propose '<bullet>'  queue a fact for a person to approve; brain inbox lists and moves them
+brain propose '<bullet>'  add a fact for a person to review; brain inbox lists, approves and drops them
+brain review [after|before]  after (default): a new fact answers finds at once, marked unreviewed;
+                          before: only once a person approved it
 brain export <agent>...   write this repository's pack into the agent's own file: CLAUDE.md,
                           AGENTS.md (Codex, OpenCode, Jules, Junie, Zed, Warp), Copilot, Gemini, Cursor, Cline, Kiro
 brain import claude       propose what Claude Code remembered on its own; or any markdown list

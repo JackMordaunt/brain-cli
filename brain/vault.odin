@@ -69,8 +69,9 @@ list_md :: proc(vault: string) -> ([]string, os.Error) {
 		if strings.has_prefix(rel, ".git/") || strings.contains(rel, "/.git/") {
 			continue
 		}
-		// Proposals are not memory until a person moved them.
-		if rel == INBOX_FILE {
+		// The inbox joins the index only by the review setting, and what a
+		// person dropped never does; index_files decides.
+		if rel == INBOX_FILE || rel == DROPPED_FILE {
 			continue
 		}
 		append(&files, rel)

@@ -155,6 +155,7 @@ jw_hit :: proc(w: ^Jw, h: Hit) {
 	jw_field(w, "fact", h.fact)
 	jw_field(w, "source", h.source)
 	jw_field(w, "date", h.date)
+	jw_field_bool(w, "reviewed", h.file != INBOX_FILE)
 	jw_key(w, "score")
 	jw_f64(w, h.score)
 	jw_end_obj(w)

@@ -165,14 +165,26 @@ alone and named, since a bad write there would take every hook with it.
 
 ## Proposals
 
-Nothing an agent writes enters memory unseen. `brain propose '<bullet>'`
-completes the line (the caller as source, today as date when they are
-missing), checks it parses as a bullet, and appends it to `AI/INBOX.md`,
-which the scanner skips, so a proposal never answers a `find`. `brain
-inbox` numbers the queue; `approve <n> [--to LEARNINGS]` appends the line
-to a core file, removes it from the inbox and resyncs; `drop <n>` discards
-it. The inbox is markdown in the vault like everything else, so it is
-diffable, and the approval is the commit.
+Nothing an agent writes enters memory unseen, but a person chooses whether
+they see it before or after agents do. `brain propose '<bullet>'` completes
+the line (the caller as source, today as date when they are missing),
+checks it parses as a bullet, and appends it to `AI/INBOX.md`. `brain
+inbox` numbers the proposals; `approve <n> [--to LEARNINGS]` appends the
+line to a core file, removes it from the inbox and resyncs; `drop <n>`
+moves it to `AI/DROPPED.md`, which the scanner never reads and `propose`
+checks, so an agent cannot propose the same handle and fact again.
+
+`brain review` sets when that happens, per machine, in
+`~/.config/brain/review`; `BRAIN_REVIEW` overrides it. Review after, the
+default, indexes the inbox with the core files: a proposal answers a
+`find` at once, its locator followed by `(unreviewed)` and `"reviewed":
+false` under `--json`, and loses a tie with a reviewed bullet. A person
+drops what is wrong when they get to it. Review before skips the inbox, so
+a proposal answers nothing until approved. The index records which setting
+built it and rebuilds when it changes. A queue nobody clears is why after
+is the default: under before, an unread inbox means agents never see what
+they learned. Either way the inbox is markdown in the vault like everything
+else, so it is diffable, and the review is the commit.
 
 ## Export and import
 

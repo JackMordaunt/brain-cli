@@ -2,6 +2,7 @@ package brain
 
 import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -25,10 +26,32 @@ ensure_db :: proc(cli: ^Cli) -> string {
 			return sync(cli, quiet = true)
 		}
 	}
-	if newer_md_than(cli.vault, cli.db) {
+	if newer_md_than(cli, cli.db) {
 		return sync(cli, quiet = true)
 	}
+	// A changed review setting changes what the index holds.
+	if db, err := open_db(cli.db); err == "" {
+		was := scalar_text(db, "select value from meta where key='review'")
+		sqlite3.close(&db)
+		if was != review_name(review_mode(cli)) {
+			return sync(cli, quiet = true)
+		}
+	}
 	return ""
+}
+
+// index_files is what the index is built from: every markdown file but the
+// inbox and the dropped list, and the inbox too when review comes after.
+index_files :: proc(cli: ^Cli) -> ([]string, os.Error) {
+	files, err := list_md(cli.vault)
+	if err != nil || review_mode(cli) == .Before || !os.is_file(path.join(cli.vault, INBOX_FILE)) {
+		return files, err
+	}
+	all := make([dynamic]string)
+	append(&all, ..files)
+	append(&all, INBOX_FILE)
+	slice.sort(all[:])
+	return all[:], nil
 }
 
 // open_db opens an index database; the message on failure names the file.
@@ -57,12 +80,13 @@ nonempty_file :: proc(p: string) -> bool {
 // as newer: file times are coarse, so an edit made just after a write can
 // carry the write's own time, as log_sets_an_answered_miss_aside shows. A
 // spare rebuild is cheaper than a missed edit.
-newer_md_than :: proc(vault, db: string) -> bool {
+newer_md_than :: proc(cli: ^Cli, db: string) -> bool {
+	vault := cli.vault
 	db_time, err := os.modification_time_by_path(db)
 	if err != nil {
 		return true
 	}
-	files, lerr := list_md(vault)
+	files, lerr := index_files(cli)
 	if lerr != nil {
 		return false
 	}
@@ -124,7 +148,7 @@ sync :: proc(cli: ^Cli, quiet: bool) -> string {
 	if err := path.mkdirs(cli.state); err != nil {
 		return fmt.aprintf("cannot create %s: %v", cli.state, err)
 	}
-	files, lerr := list_md(cli.vault)
+	files, lerr := index_files(cli)
 	if lerr != nil {
 		return fmt.aprintf("cannot read %s: %v", cli.vault, lerr)
 	}
@@ -147,6 +171,7 @@ sync :: proc(cli: ^Cli, quiet: bool) -> string {
 		carry_log(db, cli.db)
 	}
 	sqlite3.exec(db, fmt.tprintf("pragma user_version=%d", SCHEMA))
+	sqlite3.exec_args(db, "insert into meta(key,value) values('review',?)", review_name(review_mode(cli)))
 	bullets := scalar_int(db, "select count(*) from bullets")
 	links := scalar_int(db, "select count(*) from links")
 	cli.indexed = {bullets, links, len(files)}
