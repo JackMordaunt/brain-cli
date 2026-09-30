@@ -1,12 +1,17 @@
 # Builds the static binary for each platform on every push and, on a version
 # tag, publishes them with a sha256sums.txt, which is what install.sh and
 # install.ps1 download.
+#
+# Versions are calendar tags the way Odin's are: dev-YYYY-MM, with a letter
+# for a second release in a month (dev-2026-09a). dev-YYYY-MM-rcN is a
+# release candidate, published as a prerelease, so releases/latest and
+# `brain update` never offer it; BRAIN_VERSION=<tag> installs it.
 name: release
 
 on:
   push:
     branches: ["**"]
-    tags: ["v*"]
+    tags: ["dev-*"]
   workflow_dispatch:
 
 env:
@@ -21,6 +26,9 @@ jobs:
           - os: ubuntu-latest
             target: linux_amd64
             asset: brain-linux-amd64
+          - os: ubuntu-24.04-arm
+            target: linux_arm64
+            asset: brain-linux-arm64
           - os: macos-latest
             target: darwin_arm64
             asset: brain-darwin-arm64
@@ -139,3 +147,4 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: assets/*
+          prerelease: ${{ contains(github.ref_name, '-rc') }}

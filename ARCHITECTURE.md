@@ -25,7 +25,11 @@ they run on, check its sha256 against the release's `sha256sums.txt`, and
 put it in `~/.local/bin`. Both end by running `brain install`, so a machine
 with no vault gets one. `BRAIN_VERSION` pins a release tag and
 `BRAIN_BINDIR` picks the directory. Releases are built by
-`.github/workflows/release.yml` on a `v*` tag. The installers run before any
+`.github/workflows/release.yml` on a calendar tag, the way Odin tags its
+own: `dev-YYYY-MM`, a letter for a second release in a month
+(`dev-2026-09a`), and `dev-YYYY-MM-rcN` for a release candidate, which is
+published as a prerelease and so is never what `latest` or `brain update`
+offers. The installers run before any
 binary exists, so they repeat the release base URL the binary owns;
 `just test-installer` checks that all three agree.
 
