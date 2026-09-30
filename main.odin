@@ -13,6 +13,7 @@ package main
 
 import "core:os"
 import "core:strings"
+import "core:terminal"
 
 import "jm:prelude"
 
@@ -20,7 +21,7 @@ import "brain"
 
 main :: proc() {
 	context = prelude.init({name = "brain"})
-	cli := brain.new_cli()
+	cli := brain.new_cli(tty = terminal.is_terminal(os.stdout))
 	code := brain.run(cli, os.args[1:])
 	os.write_string(os.stdout, strings.to_string(cli.out))
 	os.write_string(os.stderr, strings.to_string(cli.err))

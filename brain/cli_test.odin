@@ -766,3 +766,32 @@ find_notes_follow_the_bullets :: proc(t: ^testing.T) {
 	o, _, _ = exec(f.cli, "find", "sqlite")
 	testing.expect(t, strings.contains(o, " **sqlite** — the index is SQLite with FTS5; delete it and `brain sync` rebuilds it — fixture — 2026-01-01\n"), o)
 }
+
+// A person at a terminal gets the help styled; an agent in the same
+// terminal, a pipe and --color=never all get USAGE byte for byte, so styling
+// never costs an agent a token.
+@(test)
+help_is_styled_only_for_a_person :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	env := make(map[string]string)
+	env["TERM"] = "xterm-256color"
+	for k in ([?]string{"NO_COLOR", "CLICOLOR_FORCE", "BRAIN_COLOR", "AI_AGENT", "CLAUDECODE", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED"}) {
+		env[k] = ""
+	}
+	person := new_cli(env, tty = true)
+	o, _, _ := exec(person, "help")
+	testing.expect(t, strings.contains(o, "\x1b[1mAsk\x1b[0m"), "a person sees bold headings")
+	o, _, _ = exec(person, "help", "--color=never")
+	testing.expect_value(t, o, USAGE)
+	_, e, code := exec(person, "help", "--color=sometimes")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "--color"), "a bad --color says so")
+
+	env["AI_AGENT"] = "fixture-agent"
+	o, _, _ = exec(new_cli(env, tty = true), "help")
+	testing.expect_value(t, o, USAGE)
+
+	env["AI_AGENT"] = ""
+	o, _, _ = exec(new_cli(env), "help")
+	testing.expect_value(t, o, USAGE)
+}

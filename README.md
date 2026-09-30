@@ -133,6 +133,11 @@ brain update              fetch the latest release
 Every command above answers `--json` with one object, so a script or an app
 reads the same thing a person does.
 
+Text is styled only for a person at a terminal. A pipe, an agent (it sets
+`AI_AGENT`, `CLAUDECODE` or `CODEX_SANDBOX`) and `NO_COLOR` get plain text, so
+styling costs an agent nothing. `--color=always|never|auto`, or `BRAIN_COLOR`,
+overrides that.
+
 Recall is opt in, once per agent: `brain recall --enable claude`.
 
 ## Give it to your agents

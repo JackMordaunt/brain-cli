@@ -78,6 +78,7 @@ check: deps
 test: build test-installer
     mkdir -p build/test
     {{odin}} test brain {{san}} {{flags}} -define:ODIN_TEST_THREADS=1 -out:build/test/brain{{exe}}
+    {{odin}} test term {{san}} {{uiflags}} -out:build/test/term{{exe}}
     @for f in bin/hooks/*; do bash -n "$f" && echo "ok $f"; done
 
 # The installers against a fake release on disk: the release binary under

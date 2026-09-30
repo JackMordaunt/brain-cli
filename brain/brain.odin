@@ -21,6 +21,8 @@ import "core:strings"
 
 import "jm:path"
 
+import "../term"
+
 // The checkout `just build` was run from, baked in so a development binary
 // under build/ knows its tool root without an install. BRAIN_TOOL in the
 // environment and the recorded tool path both outrank it.
@@ -54,16 +56,21 @@ Cli :: struct {
 	recall_db:    string,
 	dry:          bool,
 	json:         bool, // --json: one object on stdout instead of text
+	tty:          bool, // stdout is a terminal; only main can know
+	style:        term.Style, // plain unless a person is watching; see term.detect
 	indexed:      struct {
 		bullets, links, files: int,
 	}, // what the last reindex counted
 }
 
 // new_cli resolves every path the subcommands share. env overrides the
-// process environment for the keys it holds.
-new_cli :: proc(env: map[string]string = nil) -> ^Cli {
+// process environment for the keys it holds; tty says stdout is a terminal.
+new_cli :: proc(env: map[string]string = nil, tty := false) -> ^Cli {
 	cli := new(Cli)
 	cli.env = env
+	cli.tty = tty
+	mode, _ := term.parse_mode(getenv(cli, "BRAIN_COLOR"))
+	cli.style = detect_style(cli, mode)
 	cli.out = strings.builder_make()
 	cli.err = strings.builder_make()
 
@@ -96,6 +103,15 @@ getenv :: proc(cli: ^Cli, key: string, def := "") -> string {
 		return def
 	}
 	return v
+}
+
+// detect_style decides decoration from Cli's own environment, so a test's
+// overrides count; an agent always gets plain text.
+detect_style :: proc(cli: ^Cli, mode: term.Mode) -> term.Style {
+	lookup :: proc(key: string, data: rawptr) -> string {
+		return getenv((^Cli)(data), key)
+	}
+	return term.detect(cli.tty, mode, lookup, cli)
 }
 
 // Where the tool is, in order of authority: BRAIN_TOOL in the environment,
@@ -170,6 +186,12 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 	for a in raw_args {
 		if a == "--json" {
 			cli.json = true
+		} else if strings.has_prefix(a, "--color=") {
+			mode, ok := term.parse_mode(a[len("--color="):])
+			if !ok {
+				return fail(cli, fmt.aprintf("--color takes auto, always or never, not %q", a[len("--color="):]))
+			}
+			cli.style = detect_style(cli, mode)
 		} else {
 			append(&args, a)
 		}
@@ -218,7 +240,7 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 	case "uninstall":
 		return cmd_uninstall(cli, rest)
 	case "", "-h", "--help", "help":
-		out(cli, USAGE)
+		print_usage(cli)
 		return 0
 	case:
 		return fail(cli, fmt.aprintf("unknown command: %s (try 'brain help')", cmd))
@@ -257,7 +279,7 @@ Ask
 Remember
   brain propose '<bullet>'   add a fact for a person to review
   brain inbox                what is unreviewed; approve <n> [--to LEARNINGS], drop <n>
-  brain review [after|before]  after (default): a proposal answers finds at once, marked
+  brain review [<mode>]      after (default): a proposal answers finds at once, marked
                              unreviewed, until dropped; before: only once approved
   brain import claude        propose what Claude Code remembered on its own; or <file.md>
 Share
@@ -270,7 +292,7 @@ Keep it healthy
   brain log                  what keeps missing, and who asks
   brain ledger [--days N]    what lookups cost and saved, by caller, session and day
   brain lint [--staged]      check bullet form; failures block a commit
-  brain secrets [--staged|--history]  scan for credentials
+  brain secrets [--staged]   scan for credentials; --history, every commit
   brain reindex              rebuild the index from the markdown (automatic; rarely needed)
 Set up
   brain install [<vault>]    bind this machine to a vault; --dry-run shows the plan
