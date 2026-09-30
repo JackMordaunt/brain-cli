@@ -53,7 +53,10 @@ nonempty_file :: proc(p: string) -> bool {
 }
 
 // newer_md_than reports whether any markdown under the vault changed after
-// the index was written.
+// the index was written. A file stamped the same instant as the index counts
+// as newer: file times are coarse, so an edit made just after a write can
+// carry the write's own time, as log_sets_an_answered_miss_aside shows. A
+// spare rebuild is cheaper than a missed edit.
 newer_md_than :: proc(vault, db: string) -> bool {
 	db_time, err := os.modification_time_by_path(db)
 	if err != nil {
@@ -65,12 +68,12 @@ newer_md_than :: proc(vault, db: string) -> bool {
 	}
 	for f in files {
 		t, terr := os.modification_time_by_path(path.join(vault, f))
-		if terr == nil && time.diff(db_time, t) > 0 {
+		if terr == nil && time.diff(db_time, t) >= 0 {
 			return true
 		}
 	}
 	// The vocabulary is indexed too, so an edited synonyms file re-indexes.
-	if t, terr := os.modification_time_by_path(path.join(vault, SYNONYMS_FILE)); terr == nil && time.diff(db_time, t) > 0 {
+	if t, terr := os.modification_time_by_path(path.join(vault, SYNONYMS_FILE)); terr == nil && time.diff(db_time, t) >= 0 {
 		return true
 	}
 	return false
