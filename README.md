@@ -63,7 +63,7 @@ What a bare folder does not give an agent, brain layers on top:
 - **Facts that prove themselves.** `brain verify` tests what a bullet claims: the path exists, the file is in the vault, the commit is in a repository here. `brain doctor` names what failed, and which bullet was served just before you corrected the agent.
 - **Memory that happens.** Three hooks, in Claude Code and in pi: the briefing at session start, what the vault knows about each prompt as you type it, and once per session that changed files, the ask to write down what it settled. The agent never has to be told to look. The commands know no harness; one small adapter per program registers them.
 - **A cache, not a database.** The SQLite index is disposable. Delete it, `brain reindex` rebuilds it from the markdown.
-- **One binary that keeps itself current.** `brain update` fetches a signed release. It never updates unasked.
+- **One binary that keeps itself current.** `brain update` fetches a signed release, as a patch from the build you have when the release carries one, a tenth of the download. It never updates unasked.
 
 ## What a search costs
 

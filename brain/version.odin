@@ -94,7 +94,11 @@ cmd_update :: proc(cli: ^Cli, args: []string) -> int {
 	case .Up_To_Date:
 		outf(cli, "brain %s is up to date\n", VERSION)
 	case .Applied:
-		outf(cli, "updated to %s\n", selfupdate.version(&r))
+		if r.patched {
+			outf(cli, "updated to %s by a %d KB patch\n", selfupdate.version(&r), r.patch_bytes / 1000)
+		} else {
+			outf(cli, "updated to %s\n", selfupdate.version(&r))
+		}
 	case .Update_Available, .Skipped:
 		outf(cli, "%s\n", selfupdate.message(&r))
 	case .Refused, .Failed:

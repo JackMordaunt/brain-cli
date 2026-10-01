@@ -1,6 +1,8 @@
 # Builds the static binary for each platform on every push and, on a version
 # tag, publishes them with a sha256sums.txt, which is what install.sh and
-# install.ps1 download.
+# install.ps1 download, and a binary patch to each asset from each of the
+# last PATCH_FROM releases, which is what `brain update` downloads when it
+# can (jm/selfupdate/patch.odin).
 #
 # Versions are calendar tags the way Odin's are: dev-YYYY-MM, with a letter
 # for a second release in a month (dev-2026-09a). dev-YYYY-MM-rcN is a
@@ -23,6 +25,9 @@ env:
   ODIN_REPO: https://github.com/JackMordaunt/Odin
   ODIN_PIN: brainfold-pin-984eb69e0
   ODIN_LLVM: "22"
+  # How many earlier releases a tag publishes patches from. Prereleases
+  # count too: a machine on an rc updates by patch like any other.
+  PATCH_FROM: "3"
 
 jobs:
   build:
@@ -132,10 +137,22 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Windows ]; then export SAN=; fi
           just test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.asset }}
           path: build/release/${{ matrix.asset }}
+          if-no-files-found: error
+      # The patch tool from jm:selfupdate, built once for the publish
+      # runner, which has no Odin of its own.
+      - name: patch tool
+        if: matrix.target == 'linux_amd64'
+        shell: bash
+        run: odin build jm/tools/patch -o:speed -vet -strict-style -collection:jm="$PWD/jm" -out:build/release/patchtool
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: matrix.target == 'linux_amd64'
+        with:
+          name: patchtool
+          path: build/release/patchtool
           if-no-files-found: error
 
   publish:
@@ -149,6 +166,35 @@ jobs:
         with:
           path: assets
           merge-multiple: true
+      # A patch to each asset from the same asset in each of the last
+      # PATCH_FROM releases, named <asset>.<old sha256, 16 hex>.patch so a
+      # binary finds the one for itself by its own hash, wrapped in zlib,
+      # and checked to rebuild the asset exactly before it ships. A release
+      # with no earlier one, or an asset an old release lacked, ships none.
+      - name: patches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mv assets/patchtool patchtool && chmod +x patchtool
+          mapfile -t tags < <(gh release list -R "$GITHUB_REPOSITORY" --limit 50 --json tagName --jq '.[].tagName' | grep -vx "$GITHUB_REF_NAME" | head -n "$PATCH_FROM")
+          echo "patches from: ${tags[*]:-none}"
+          for tag in "${tags[@]}"; do
+            mkdir -p "old/$tag"
+            gh release download "$tag" -R "$GITHUB_REPOSITORY" -D "old/$tag" -p 'brain-*' || true
+            rm -f old/"$tag"/*.patch
+            for new in assets/brain-*; do
+              name=$(basename "$new")
+              old="old/$tag/$name"
+              [ -f "$old" ] || continue
+              hash=$(sha256sum "$old" | cut -c1-16)
+              out="assets/$name.$hash.patch"
+              ./patchtool make "$old" "$new" raw.patch
+              python3 -c 'import sys,zlib; sys.stdout.buffer.write(b"JMPZ" + zlib.compress(open(sys.argv[1], "rb").read(), 9))' raw.patch > "$out"
+              ./patchtool check "$old" "$out" "$new"
+              printf '%s -> %s: %s bytes of %s\n' "$tag" "$name" "$(stat -c %s "$out")" "$(stat -c %s "$new")"
+            done
+          done
       - run: cd assets && sha256sum brain-* > sha256sums.txt && cat sha256sums.txt
       # The checksum file is signed with the key whose public half the
       # binary embeds; selfupdate trusts nothing that does not verify.

@@ -43,7 +43,19 @@ when the binary was copied.
 A release binary keeps itself current. `brain update` fetches the latest
 release, verifies the Ed25519 signature on its checksum file with the key
 compiled into the binary, checks the download against that file, keeps the
-old binary as `brain.old`, swaps the new one in and runs it. At a terminal,
+old binary as `brain.old`, swaps the new one in and runs it. The download
+is a patch when the release has one for this very build: the workflow
+publishes `<asset>.<hash16>.patch` for each asset from each of the last
+`PATCH_FROM` releases, named by the old file's SHA-256, so a binary finds
+its own by hashing itself. The patch is jm:selfupdate's format
+(`jm/selfupdate/patch.odin`: copies found by a rolling hash over the old
+file, literals for the rest, wrapped in zlib), its hash is in the signed
+sums like any asset, and the result must match the asset's published
+hash before it is written, so a patch can never yield anything but the
+released file; anything that fails falls back to the whole asset. On two
+releases a day apart the patch was a tenth of the binary. The workflow
+builds `jm/tools/patch` on the Linux runner and the publish job runs it
+against the earlier releases it downloads with `gh`. At a terminal,
 `brain` checks for a release once a day, with a 3 s timeout, and after
 the command's output says on stderr that one is waiting, on every run
 until `brain update`; the finding is kept in the state directory. It never
