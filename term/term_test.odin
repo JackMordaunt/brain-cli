@@ -40,7 +40,14 @@ an_agent_in_a_terminal_is_plain :: proc(t: ^testing.T) {
 no_color_and_dumb_are_plain :: proc(t: ^testing.T) {
 	testing.expect_value(t, style_of(true, {"TERM" = "xterm", "NO_COLOR" = "1"}), Style{})
 	testing.expect_value(t, style_of(true, {"TERM" = "dumb"}), Style{})
-	testing.expect_value(t, style_of(true, {}), Style{})
+	// With nothing in the environment, Unix has no terminal to speak of;
+	// Windows asks the console itself, so the answer is whatever this
+	// console took (release run 36921260165 saw Eight_Bit on the runner).
+	when ODIN_OS == .Windows {
+		testing.expect_value(t, style_of(true, {}), Style{depth = terminal.color_depth})
+	} else {
+		testing.expect_value(t, style_of(true, {}), Style{})
+	}
 }
 
 @(test)
