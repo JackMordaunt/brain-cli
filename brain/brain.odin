@@ -221,6 +221,8 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_import(cli, rest)
 	case "recall":
 		return cmd_recall(cli, rest)
+	case "howto":
+		return cmd_howto(cli, rest)
 	case "day":
 		return cmd_day(cli, rest)
 	case "week":
@@ -282,6 +284,8 @@ Ask
   brain pack [<project>]     the briefing a session opens with; --budget N, --fresh
   brain recall <terms...>    what past agent conversations said; --limit N, --full <id>,
                              --sessions, --prefix, --enable <agent>, --sources
+  brain howto <terms...>     the shell commands that did it last time, from the transcripts;
+                             --all lists the sessions, --propose keeps the chain in the vault
   brain day [YYYY-MM-DD]     what was worked on that day, by repository: sessions, goals, commits
   brain week [--since Nd]    the same for the last seven days; --project <name>, --no-git
 Remember

@@ -45,7 +45,7 @@ recall_finds_snippets_titles_and_sessions :: proc(t: ^testing.T) {
 	exec(f.cli, "recall", "--enable", "fixture")
 	o, _, code := exec(f.cli, "recall", "--sync")
 	testing.expect_value(t, code, 0)
-	testing.expect_value(t, o, "ingested 2 transcript(s)\nturns: 3\n")
+	testing.expect_value(t, o, "ingested 2 transcript(s)\nturns: 3\ntool calls: 4\n")
 
 	o, _, code = exec(f.cli, "recall", "playhead")
 	testing.expect_value(t, code, 0)
@@ -107,7 +107,9 @@ claude_adapter_reads_a_transcript :: proc(t: ^testing.T) {
 			file,
 			`{"type":"user","cwd":"C:\\Users\\me\\proj","isSidechain":false,"uuid":"u1","timestamp":"2026-01-01T10:00:00Z","message":{"role":"user","content":"hello   there\nfriend"}}` +
 			"\n" +
-			`{"type":"assistant","uuid":"a1","timestamp":"2026-01-01T10:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"x"}]}}` +
+			`{"type":"assistant","uuid":"a1","timestamp":"2026-01-01T10:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"hi"},{"type":"tool_use","name":"x"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"just   build","description":"Build"}},{"type":"tool_use","id":"t2","name":"Edit","input":{"file_path":"/p/a.odin","old_string":"x"}}]}}` +
+			"\n" +
+			`{"type":"user","uuid":"r1","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"boom","is_error":true},{"type":"tool_result","tool_use_id":"t2","content":"ok"}]}}` +
 			"\n" +
 			`{"type":"user","uuid":"u2","isMeta":true,"message":{"role":"user","content":"meta"}}` +
 			"\n" +
@@ -118,8 +120,19 @@ claude_adapter_reads_a_transcript :: proc(t: ^testing.T) {
 		),
 		nil,
 	)
-	turns := claude_emit(f.cli, file)
+	tr := claude_emit(f.cli, file)
+	turns := tr.turns
 	testing.expect_value(t, len(turns), 2)
+	// Two calls carried an id; the result marked the first an error.
+	testing.expect_value(t, len(tr.tools), 2)
+	if len(tr.tools) == 2 {
+		testing.expect_value(t, tr.tools[0].name, "Bash")
+		testing.expect_value(t, tr.tools[0].input, "just build")
+		testing.expect_value(t, tr.tools[0].ok, false)
+		testing.expect_value(t, tr.tools[0].turn_id, "a1")
+		testing.expect_value(t, tr.tools[1].input, "/p/a.odin")
+		testing.expect_value(t, tr.tools[1].ok, true)
+	}
 	testing.expect_value(t, turns[0].id, "u1")
 	testing.expect_value(t, turns[0].body, "hello there friend")
 	testing.expect_value(t, turns[0].cwd, `C:\Users\me\proj`)
@@ -130,5 +143,5 @@ claude_adapter_reads_a_transcript :: proc(t: ^testing.T) {
 
 	// No title means a headless run, not a conversation.
 	testing.expect_value(t, path.write(file, `{"type":"user","uuid":"u1","message":{"role":"user","content":"x"}}` + "\n"), nil)
-	testing.expect_value(t, len(claude_emit(f.cli, file)), 0)
+	testing.expect_value(t, len(claude_emit(f.cli, file).turns), 0)
 }

@@ -1,0 +1,4 @@
+c1	2026-01-01T10:00:30Z	sess-one	Bash	just build	0
+c2	2026-01-01T10:00:40Z	sess-one	Bash	just build SAN=	1
+c3	2026-01-01T10:00:50Z	sess-one	Bash	just test	1
+c4	2026-01-01T10:00:55Z	sess-one	Edit	/tmp/omacut/main.odin	1

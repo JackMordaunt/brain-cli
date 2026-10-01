@@ -29,6 +29,18 @@ create trigger if not exists turn_ad after delete on turn begin
   insert into turn_fts(turn_fts, rowid, body, title)
     values ('delete', old.rowid, old.body, old.title);
 end;
+create table if not exists tool(
+  id text primary key, turn_id text, session text, path text,
+  ts text, cwd text, title text, name text, input text, ok integer);
+create virtual table if not exists tool_fts
+  using fts5(input, title, content='tool', content_rowid='rowid');
+create trigger if not exists tool_ai after insert on tool begin
+  insert into tool_fts(rowid, input, title) values (new.rowid, new.input, new.title);
+end;
+create trigger if not exists tool_ad after delete on tool begin
+  insert into tool_fts(tool_fts, rowid, input, title)
+    values ('delete', old.rowid, old.input, old.title);
+end;
 `
 
 // adapters_on names the sources this machine has enabled.
@@ -72,6 +84,12 @@ open_recall_db :: proc(cli: ^Cli) -> (sqlite3.Db, string) {
 // new file re-inserts nothing, and the overlap costs nothing.
 recall_sync :: proc(cli: ^Cli, db: sqlite3.Db, full: bool) -> int {
 	total := 0
+	full := full
+	// A database written before tool calls were read fills its tool table
+	// with one full pass.
+	if !full && scalar_int(db, "select count(*) from tool") == 0 && scalar_int(db, "select count(*) from turn") > 0 {
+		full = true
+	}
 	for name in adapters_on(cli) {
 		a, _ := find_adapter(cli, name)
 		stamp := path.join(cli.state, strings.concatenate({"recall-", name, ".stamp"}))
@@ -95,11 +113,16 @@ recall_sync :: proc(cli: ^Cli, db: sqlite3.Db, full: bool) -> int {
 				"insert or ignore into turn(id,adapter,session,path,ts,role,title,cwd,body) values(?,?,?,?,?,?,?,?,?)",
 			)
 			src, _ := sqlite3.prepare(db, "insert or replace into source(path,adapter) values(?,?)")
+			tool, _ := sqlite3.prepare(
+				db,
+				"insert or ignore into tool(id,turn_id,session,path,ts,cwd,title,name,input,ok) values(?,?,?,?,?,?,?,?,?,?)",
+			)
 			for f in changed {
-				ingest_file(cli, a, f, &ins, &src)
+				ingest_file(cli, a, f, &ins, &src, &tool)
 			}
 			sqlite3.finish(&ins)
 			sqlite3.finish(&src)
+			sqlite3.finish(&tool)
 			sqlite3.exec(db, "commit")
 		}
 		// A transcript that disappeared takes its turns with it.
@@ -111,6 +134,7 @@ recall_sync :: proc(cli: ^Cli, db: sqlite3.Db, full: bool) -> int {
 			for was in column_texts(db, "select path from source where adapter=?", name) {
 				if !now[was] {
 					sqlite3.exec_args(db, "delete from turn where path=?", was)
+					sqlite3.exec_args(db, "delete from tool where path=?", was)
 					sqlite3.exec_args(db, "delete from source where path=?", was)
 				}
 			}
@@ -122,7 +146,7 @@ recall_sync :: proc(cli: ^Cli, db: sqlite3.Db, full: bool) -> int {
 
 // ingest_file parses one transcript in its own arena, so a batch of large
 // files does not hold every parsed record until the process exits.
-ingest_file :: proc(cli: ^Cli, a: Adapter, file: string, ins, src: ^sqlite3.Stmt) {
+ingest_file :: proc(cli: ^Cli, a: Adapter, file: string, ins, src, tool: ^sqlite3.Stmt) {
 	arena: virtual.Arena
 	if virtual.arena_init_growing(&arena) != nil {
 		return
@@ -130,8 +154,12 @@ ingest_file :: proc(cli: ^Cli, a: Adapter, file: string, ins, src: ^sqlite3.Stmt
 	defer virtual.arena_destroy(&arena)
 	context.allocator = virtual.arena_allocator(&arena)
 	context.temp_allocator = context.allocator
-	for t in a.emit(cli, file) {
+	tr := a.emit(cli, file)
+	for t in tr.turns {
 		step(ins, t.id, a.name, t.session, file, t.ts, t.role, t.title, t.cwd, t.body)
+	}
+	for c in tr.tools {
+		step(tool, c.id, c.turn_id, c.session, file, c.ts, c.cwd, c.title, c.name, c.input, i64(c.ok ? 1 : 0))
 	}
 	step(src, file, a.name)
 }
@@ -171,6 +199,7 @@ cmd_recall :: proc(cli: ^Cli, args: []string) -> int {
 			defer sqlite3.close(&db)
 			outf(cli, "ingested %d transcript(s)\n", recall_sync(cli, db, full = true))
 			outf(cli, "turns: %d\n", scalar_int(db, "select count(*) from turn"))
+			outf(cli, "tool calls: %d\n", scalar_int(db, "select count(*) from tool"))
 			return 0
 		case "--sources":
 			on := adapters_on(cli)

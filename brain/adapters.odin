@@ -17,13 +17,28 @@ Turn :: struct {
 	id, ts, role, session, title, cwd, body: string,
 }
 
+// Tool is one tool call the agent made: which tool, the one input worth
+// searching (a command, a path, a pattern), and whether its result was an
+// error. The chain of Bash calls that ended well is how a session did
+// something, which `brain howto` replays.
+Tool :: struct {
+	id, turn_id, ts, session, title, cwd, name, input: string,
+	ok:                                                bool,
+}
+
+// Transcript is what an adapter reads out of one file.
+Transcript :: struct {
+	turns: []Turn,
+	tools: []Tool,
+}
+
 Adapter :: struct {
 	name: string,
 	// Every transcript this adapter can see on this machine.
 	list: proc(cli: ^Cli) -> []string,
-	// The turns of one transcript. A transcript with no title is a headless
-	// API run, not a conversation, and yields nothing.
-	emit: proc(cli: ^Cli, file: string) -> []Turn,
+	// The turns and tool calls of one transcript. A transcript with no
+	// title is a headless API run, not a conversation, and yields nothing.
+	emit: proc(cli: ^Cli, file: string) -> Transcript,
 }
 
 ADAPTERS :: [3]Adapter {
@@ -69,10 +84,10 @@ claude_list :: proc(cli: ^Cli) -> []string {
 	return files_with_suffix(claude_root(cli), ".jsonl")
 }
 
-claude_emit :: proc(cli: ^Cli, file: string) -> []Turn {
+claude_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 	text, err := os.read_entire_file_from_path(file, context.allocator)
 	if err != nil {
-		return nil
+		return
 	}
 	lines := strings.split_lines(string(text))
 	sid := filepath.stem(file)
@@ -83,7 +98,7 @@ claude_emit :: proc(cli: ^Cli, file: string) -> []Turn {
 		title = last_field(lines, `"type":"ai-title"`, "aiTitle")
 	}
 	if title == "" {
-		return nil
+		return
 	}
 	cwd := ""
 	for l in lines {
@@ -94,6 +109,8 @@ claude_emit :: proc(cli: ^Cli, file: string) -> []Turn {
 	}
 
 	turns := make([dynamic]Turn)
+	tools := make([dynamic]Tool)
+	by_id := make(map[string]int) // tool id -> index in tools
 	for l in lines {
 		v := parse_line(l)
 		obj, is_obj := v.(json.Object)
@@ -106,6 +123,38 @@ claude_emit :: proc(cli: ^Cli, file: string) -> []Turn {
 		}
 		if json_bool(v, "isSidechain") || json_bool(v, "isMeta") {
 			continue
+		}
+		// A tool_use block names a call by id and a later tool_result block
+		// answers it by that id (claude_adapter_reads_a_transcript shows the
+		// pair). Blocks are read before the record is judged as a turn, since
+		// a record of calls or results alone has no text to keep.
+		for block in content_blocks(obj["message"]) {
+			switch json_string(block, "type") {
+			case "tool_use":
+				id := json_string(block, "id")
+				if id == "" {
+					continue
+				}
+				by_id[id] = len(tools)
+				append(
+					&tools,
+					Tool {
+						id = id,
+						turn_id = json_string(v, "uuid"),
+						ts = json_string(v, "timestamp"),
+						session = sid,
+						title = title,
+						cwd = cwd,
+						name = json_string(block, "name"),
+						input = tool_input(block),
+						ok = true,
+					},
+				)
+			case "tool_result":
+				if i, known := by_id[json_string(block, "tool_use_id")]; known && json_bool(block, "is_error") {
+					tools[i].ok = false
+				}
+			}
 		}
 		if ut := json_string(v, "userType"); ut != "" && ut != "external" {
 			continue
@@ -132,7 +181,23 @@ claude_emit :: proc(cli: ^Cli, file: string) -> []Turn {
 			},
 		)
 	}
-	return turns[:]
+	return Transcript{turns = turns[:], tools = tools[:]}
+}
+
+// TOOL_INPUT_MAX bounds the input kept per call: a command or a path, not
+// a file's contents.
+TOOL_INPUT_MAX :: 500
+
+// tool_input is the one field of a call's input worth searching: the
+// command for a shell, the path for a file tool, the pattern for a search,
+// else nothing.
+tool_input :: proc(block: json.Value) -> string {
+	for key in ([3]string{"command", "file_path", "pattern"}) {
+		if s := json_string(block, "input", key); s != "" {
+			return rune_prefix(collapse_space(s), TOOL_INPUT_MAX)
+		}
+	}
+	return ""
 }
 
 CLAUDE_SKIP :: [6]string {
@@ -155,14 +220,16 @@ pi_list :: proc(cli: ^Cli) -> []string {
 	return files_with_suffix(pi_root(cli), ".jsonl")
 }
 
-pi_emit :: proc(cli: ^Cli, file: string) -> []Turn {
+// pi's tool records are not read yet: its turns carry the text and the
+// tool calls stay out of the tool table until the format is pinned down.
+pi_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 	text, err := os.read_entire_file_from_path(file, context.allocator)
 	if err != nil {
-		return nil
+		return
 	}
 	lines := strings.split_lines(string(text))
 	if len(lines) == 0 {
-		return nil
+		return
 	}
 	title := ""
 	for l in lines {
@@ -176,7 +243,7 @@ pi_emit :: proc(cli: ^Cli, file: string) -> []Turn {
 		title = last_field(lines, `"type":"session_info"`, "name")
 	}
 	if title == "" {
-		return nil
+		return
 	}
 	head := parse_line(lines[0])
 	sid := json_string(head, "id")
@@ -221,35 +288,47 @@ pi_emit :: proc(cli: ^Cli, file: string) -> []Turn {
 			},
 		)
 	}
-	return turns[:]
+	return Transcript{turns = turns[:]}
 }
 
 PI_SKIP :: [2]string{"<system-reminder>", "<command-name>"}
 
 // ---- fixture --------------------------------------------------------------
 // A source the test suite owns: TSV files under FIXTURE_TRANSCRIPTS with the
-// columns id, timestamp, role, session, title, cwd, body.
+// columns id, timestamp, role, session, title, cwd, body. A sibling
+// <name>.tools.tsv holds that transcript's tool calls: id, timestamp,
+// session, name, input, ok.
+
+FIXTURE_TOOLS :: ".tools.tsv"
 
 fixture_list :: proc(cli: ^Cli) -> []string {
 	root := getenv(cli, "FIXTURE_TRANSCRIPTS")
 	if root == "" {
 		return nil
 	}
-	return files_with_suffix(root, ".tsv")
+	files := make([dynamic]string)
+	for f in files_with_suffix(root, ".tsv") {
+		if !strings.has_suffix(f, FIXTURE_TOOLS) {
+			append(&files, f)
+		}
+	}
+	return files[:]
 }
 
-fixture_emit :: proc(cli: ^Cli, file: string) -> []Turn {
+fixture_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 	text, err := os.read_entire_file_from_path(file, context.allocator)
 	if err != nil {
-		return nil
+		return
 	}
 	turns := make([dynamic]Turn)
+	title, cwd := "", ""
 	rest := string(text)
 	for raw in strings.split_lines_iterator(&rest) {
 		cols := strings.split(strings.trim_suffix(raw, "\r"), "\t")
 		if len(cols) < 7 {
 			continue
 		}
+		title, cwd = cols[4], cols[5]
 		append(
 			&turns,
 			Turn {
@@ -263,7 +342,32 @@ fixture_emit :: proc(cli: ^Cli, file: string) -> []Turn {
 			},
 		)
 	}
-	return turns[:]
+	tr.turns = turns[:]
+	tools := make([dynamic]Tool)
+	if ttext, terr := os.read_entire_file_from_path(strings.concatenate({strings.trim_suffix(file, ".tsv"), FIXTURE_TOOLS}), context.allocator); terr == nil {
+		trest := string(ttext)
+		for raw in strings.split_lines_iterator(&trest) {
+			cols := strings.split(strings.trim_suffix(raw, "\r"), "\t")
+			if len(cols) < 6 {
+				continue
+			}
+			append(
+				&tools,
+				Tool {
+					id = cols[0],
+					ts = cols[1],
+					session = cols[2],
+					title = title,
+					cwd = cwd,
+					name = cols[3],
+					input = cols[4],
+					ok = cols[5] == "1",
+				},
+			)
+		}
+	}
+	tr.tools = tools[:]
+	return
 }
 
 // ---- shared ---------------------------------------------------------------
@@ -324,6 +428,20 @@ json_bool :: proc(v: json.Value, key: string) -> bool {
 	}
 	b, is_bool := obj[key].(json.Boolean)
 	return is_bool && bool(b)
+}
+
+// content_blocks is a message's content array, or nothing when the content
+// is a plain string.
+content_blocks :: proc(message: json.Value) -> []json.Value {
+	msg, ok := message.(json.Object)
+	if !ok {
+		return nil
+	}
+	arr, is_arr := msg["content"].(json.Array)
+	if !is_arr {
+		return nil
+	}
+	return arr[:]
 }
 
 // content_text is a message's text: its content when that is a string, or
