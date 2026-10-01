@@ -398,7 +398,7 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 	// Tilde imports are supported, so this block is identical on every machine.
 	claude_md := path.join(cli.home, ".claude", "CLAUDE.md")
 	block_apply(cli, claude_md, "claude", "<!--", "-->", CLAUDE_BLOCK)
-	hook_apply(cli, posix_path(installed))
+	hooks_apply(cli, posix_path(installed))
 	// An absolute import of the same file would load it a second time.
 	if text, ok := read_text(claude_md); ok {
 		dup := strings.concatenate({vault, "/AI/AGENTS.md"})
@@ -555,7 +555,7 @@ cmd_uninstall :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	remove_guards(cli)
 	block_remove(cli, path.join(cli.home, ".claude", "CLAUDE.md"), "claude")
-	hook_remove(cli)
+	hooks_remove(cli)
 	bindir := pick_bindir(cli)
 	for f in ([5]string {
 			cli.conf_vault,

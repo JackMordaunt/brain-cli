@@ -1,6 +1,5 @@
 package brain
 
-import "core:encoding/json"
 import "core:os"
 import "core:slice"
 import "core:strconv"
@@ -46,68 +45,11 @@ PRIME_STOP :: [?]string {
 	"should", "mean", "means", "approach", "approaches", "kind", "sort", "part", "between",
 }
 
-// wants_stdin says whether a command line reads the hook's JSON: settle
-// always, prime only when no prompt word was given as an argument.
-wants_stdin :: proc(args: []string) -> bool {
-	switch args[0] {
-	case "settle":
-		return true
-	case "prime":
-		skip := false
-		for a in args[1:] {
-			if skip {
-				skip = false
-				continue
-			}
-			if a == "--budget" {
-				skip = true
-				continue
-			}
-			if !strings.has_prefix(a, "-") {
-				return false
-			}
-		}
-		return true
-	}
-	return false
-}
-
-// read_stdin is what the hook handed over, or what a test set.
-read_stdin :: proc(cli: ^Cli) -> string {
-	if cli.has_stdin {
-		return cli.stdin
-	}
-	b := strings.builder_make()
-	buf: [16384]byte
-	for {
-		n, err := os.read(os.stdin, buf[:])
-		if n > 0 {
-			strings.write_bytes(&b, buf[:n])
-		}
-		if err != nil || n == 0 {
-			break
-		}
-	}
-	return strings.to_string(b)
-}
-
-// hook_input is the JSON a hook gets on stdin, or nothing when stdin
-// was not JSON, in which case a caller typed the prompt itself.
-hook_input :: proc(text: string) -> (v: json.Value, ok: bool) {
-	t := strings.trim_space(text)
-	if !strings.has_prefix(t, "{") {
-		return nil, false
-	}
-	parsed, err := json.parse_string(t)
-	if err != nil {
-		return nil, false
-	}
-	_, is_obj := parsed.(json.Object)
-	return parsed, is_obj
-}
-
 cmd_prime :: proc(cli: ^Cli, args: []string) -> int {
+	usage := "usage: brain prime [--budget <tokens>] [--harness <name>] [--session <id>] [<prompt...>]"
 	budget := PRIME_BUDGET * 4
+	harness := ""
+	flags: Hook_Event
 	words := make([dynamic]string)
 	rest := args
 	for len(rest) > 0 {
@@ -121,31 +63,40 @@ cmd_prime :: proc(cli: ^Cli, args: []string) -> int {
 				rest = rest[1:]
 			}
 			if !ok || n <= 0 {
-				return fail(cli, "usage: brain prime [--budget <tokens>] [<prompt...>]")
+				return fail(cli, usage)
 			}
 			budget = n * 4
+		case "--harness", "--session", "--cwd":
+			if len(rest) == 0 {
+				return fail(cli, usage)
+			}
+			switch arg {
+			case "--harness":
+				harness = rest[0]
+			case "--session":
+				flags.session = rest[0]
+			case "--cwd":
+				flags.cwd = rest[0]
+			}
+			rest = rest[1:]
+		case "--":
+			append(&words, ..rest)
+			rest = nil
 		case:
 			append(&words, arg)
 		}
 	}
-	prompt := strings.join(words[:], " ")
-	session := session_id(cli)
-	caller := caller_id(cli)
-	if prompt == "" {
-		text := read_stdin(cli)
-		if v, is_hook := hook_input(text); is_hook {
-			prompt = json_string(v, "prompt")
-			if s := json_string(v, "session_id"); s != "" {
-				session = s
-			}
-			if caller == "" && json_string(v, "hook_event_name") != "" {
-				caller = "claude"
-			}
-		} else {
-			prompt = text
-		}
+	flags.prompt = strings.join(words[:], " ")
+	ev, h, got := hook_event(cli, .Prompt, flags, harness)
+	if !got {
+		return 0
 	}
-	terms := prime_terms(prompt)
+	caller := caller_id(cli)
+	if caller == "" {
+		caller = h.name
+	}
+	session := ev.session
+	terms := prime_terms(ev.prompt)
 	if len(terms) == 0 {
 		return 0
 	}
@@ -440,15 +391,40 @@ log_query :: proc(db: sqlite3.Db, q: string, hits: []Hit, caller, session: strin
 // ---- settle ---------------------------------------------------------------
 
 cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
-	if len(args) > 0 {
-		return fail(cli, "usage: brain settle  (a Claude Code Stop hook; reads the hook's JSON on stdin)")
+	usage := "usage: brain settle [--harness <name>] [--session <id>] [--transcript <file>] [--continuing]"
+	harness := ""
+	flags: Hook_Event
+	rest := args
+	for len(rest) > 0 {
+		arg := rest[0]
+		rest = rest[1:]
+		switch arg {
+		case "--continuing":
+			flags.continuing = true
+		case "--harness", "--session", "--transcript", "--cwd":
+			if len(rest) == 0 {
+				return fail(cli, usage)
+			}
+			switch arg {
+			case "--harness":
+				harness = rest[0]
+			case "--session":
+				flags.session = rest[0]
+			case "--transcript":
+				flags.transcript = rest[0]
+			case "--cwd":
+				flags.cwd = rest[0]
+			}
+			rest = rest[1:]
+		case:
+			return fail(cli, usage)
+		}
 	}
-	v, is_hook := hook_input(read_stdin(cli))
-	if !is_hook || json_bool(v, "stop_hook_active") {
+	ev, h, ok := hook_event(cli, .Stop, flags, harness)
+	if !ok || ev.continuing {
 		return 0
 	}
-	session := json_string(v, "session_id")
-	transcript := json_string(v, "transcript_path")
+	session, transcript := ev.session, ev.transcript
 	if session == "" || transcript == "" || !os.is_file(transcript) {
 		return 0
 	}
@@ -456,7 +432,11 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 	if os.exists(stamp) {
 		return 0
 	}
-	turns, worked, proposed := settle_scan(transcript)
+	adapter, has := find_adapter(cli, h.transcripts)
+	if !has {
+		return 0
+	}
+	turns, worked, proposed := settle_scan(adapter.scan(cli, transcript))
 	if turns < SETTLE_MIN_TURNS || !worked || proposed {
 		return 0
 	}
@@ -488,43 +468,29 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 			}
 		}
 	}
-	w := jw_make()
-	jw_obj(&w)
-	jw_field(&w, "decision", "block")
-	jw_field(&w, "reason", strings.to_string(reason))
-	jw_end_obj(&w)
-	jw_flush(cli, &w)
+	out(cli, h.reply(strings.to_string(reason)))
 	return 0
 }
 
-// settle_scan reads a transcript for what settle decides on: how many
-// times the assistant spoke, whether it changed anything (an edit, a write
-// or a shell command), and whether it already proposed to memory.
-settle_scan :: proc(file: string) -> (turns: int, worked, proposed: bool) {
-	text, err := os.read_entire_file_from_path(file, context.allocator)
-	if err != nil {
-		return
-	}
-	lines := strings.split_lines(string(text))
-	for l in lines {
-		v := parse_line(l)
-		obj, is_obj := v.(json.Object)
-		if !is_obj || json_string(v, "type") != "assistant" || json_bool(v, "isSidechain") {
-			continue
+// settle_scan reads a transcript, as its adapter emits it without the
+// title requirement, for what settle decides on: how many times the
+// assistant spoke, whether it changed anything (an edit, a write or a
+// shell command), and whether it already proposed to memory. Tool names
+// are compared in lower case, since harnesses spell them differently.
+settle_scan :: proc(tr: Transcript) -> (turns: int, worked, proposed: bool) {
+	for t in tr.turns {
+		if t.role == "assistant" {
+			turns += 1
 		}
-		turns += 1
-		for block in content_blocks(obj["message"]) {
-			if json_string(block, "type") != "tool_use" {
-				continue
-			}
-			switch json_string(block, "name") {
-			case "Edit", "Write", "NotebookEdit":
-				worked = true
-			case "Bash":
-				worked = true
-				if strings.contains(json_string(block, "input", "command"), "brain propose") {
-					proposed = true
-				}
+	}
+	for c in tr.tools {
+		switch strings.to_lower(c.name) {
+		case "edit", "write", "notebookedit", "multiedit":
+			worked = true
+		case "bash", "powershell":
+			worked = true
+			if strings.contains(c.input, "brain propose") {
+				proposed = true
 			}
 		}
 	}

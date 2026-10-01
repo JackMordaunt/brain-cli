@@ -145,3 +145,49 @@ claude_adapter_reads_a_transcript :: proc(t: ^testing.T) {
 	testing.expect_value(t, path.write(file, `{"type":"user","uuid":"u1","message":{"role":"user","content":"x"}}` + "\n"), nil)
 	testing.expect_value(t, len(claude_emit(f.cli, file).turns), 0)
 }
+
+@(test)
+pi_adapter_reads_tool_calls_and_their_results :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	file := path.join(f.root, "2026-01-01T00-00-00-000Z_pi-9.jsonl")
+	testing.expect_value(
+		t,
+		path.write(
+			file,
+			`{"type":"session","version":3,"id":"pi-9","timestamp":"2026-01-01T00:00:00.000Z","cwd":"/tmp/p"}` +
+			"\n" +
+			`{"type":"message","id":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"build it"}}` +
+			"\n" +
+			`{"type":"message","id":"a1","timestamp":"2026-01-01T00:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"on it"},{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"just  build"}},{"type":"toolCall","id":"c2","name":"read","arguments":{"path":"/tmp/p/x"}}]}}` +
+			"\n" +
+			`{"type":"message","id":"r1","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"bash","content":[{"type":"text","text":"boom"}],"isError":true}}` +
+			"\n" +
+			`{"type":"message","id":"r2","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"toolResult","toolCallId":"c2","toolName":"read","content":[{"type":"text","text":"ok"}],"isError":false}}` +
+			"\n" +
+			`{"type":"custom","id":"t1","timestamp":"2026-01-01T00:00:04.000Z","customType":"conversation-title","data":{"title":"A pi session"}}` +
+			"\n",
+		),
+		nil,
+	)
+	tr := pi_emit(f.cli, file)
+	testing.expect_value(t, len(tr.turns), 2)
+	testing.expect_value(t, len(tr.tools), 2)
+	if len(tr.tools) == 2 {
+		testing.expect_value(t, tr.tools[0].name, "bash")
+		testing.expect_value(t, tr.tools[0].input, "just build")
+		testing.expect_value(t, tr.tools[0].ok, false)
+		testing.expect_value(t, tr.tools[0].turn_id, "a1")
+		testing.expect_value(t, tr.tools[0].session, "pi-9")
+		testing.expect_value(t, tr.tools[1].input, "/tmp/p/x")
+		testing.expect_value(t, tr.tools[1].ok, true)
+	}
+	if len(tr.turns) == 2 {
+		testing.expect_value(t, tr.turns[0].title, "A pi session")
+	}
+	// Untitled, a scan still reads it and emit does not.
+	testing.expect_value(t, path.write(file, `{"type":"session","version":3,"id":"pi-9","cwd":"/tmp/p"}` + "\n" + `{"type":"message","id":"u1","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":"x"}}` + "\n"), nil)
+	testing.expect_value(t, len(pi_emit(f.cli, file).turns), 0)
+	testing.expect_value(t, len(pi_scan(f.cli, file).turns), 1)
+}

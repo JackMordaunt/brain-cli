@@ -1,14 +1,13 @@
 package brain
 
 import "core:encoding/json"
-import "core:os"
 import "core:strings"
 
 import "jm:path"
 
-// Claude Code runs hooks at points in a session and adds what a command
-// hook prints on exit 0 to the session's context
-// (code.claude.com/docs/en/hooks). The installer registers three:
+// The Claude Code harness. Claude Code runs hooks at points in a session
+// and adds what a command hook prints on exit 0 to the session's context
+// (code.claude.com/docs/en/hooks). Brain registers three:
 //
 //	SessionStart      brain pack    what the vault knows about this repository
 //	UserPromptSubmit  brain prime   what it knows about this prompt
@@ -17,7 +16,70 @@ import "jm:path"
 // Each is written into ~/.claude/settings.json beside whatever is already
 // there and recognised by its command, so installing twice adds nothing,
 // uninstall removes only them, and `brain hooks off` turns them off
-// without touching anyone else's.
+// without touching anyone else's. The hook hands its JSON over on stdin,
+// which claude_parse reads, and a Stop hook continues the turn with
+// {"decision":"block","reason":...}, which claude_reply writes.
+
+// Claude Code is the default harness: present wherever brain is asked.
+claude_detect :: proc(cli: ^Cli) -> bool {
+	return true
+}
+
+// claude_parse reads a hook's JSON: prompt, session_id, transcript_path,
+// cwd, stop_hook_active. hook_event_name is what marks it as Claude's.
+claude_parse :: proc(text: string) -> (ev: Hook_Event, ok: bool) {
+	v, is := hook_input(text)
+	if !is || json_string(v, "hook_event_name") == "" {
+		return
+	}
+	ev.prompt = json_string(v, "prompt")
+	ev.session = json_string(v, "session_id")
+	ev.transcript = json_string(v, "transcript_path")
+	ev.cwd = json_string(v, "cwd")
+	ev.continuing = json_bool(v, "stop_hook_active")
+	return ev, true
+}
+
+claude_reply :: proc(reason: string) -> string {
+	w := jw_make()
+	jw_obj(&w)
+	jw_field(&w, "decision", "block")
+	jw_field(&w, "reason", reason)
+	jw_end_obj(&w)
+	return strings.concatenate({strings.to_string(w.b), "\n"})
+}
+
+// hook_input is JSON on stdin as an object, or nothing.
+hook_input :: proc(text: string) -> (v: json.Value, ok: bool) {
+	t := strings.trim_space(text)
+	if !strings.has_prefix(t, "{") {
+		return nil, false
+	}
+	parsed, err := json.parse_string(t)
+	if err != nil {
+		return nil, false
+	}
+	_, is_obj := parsed.(json.Object)
+	return parsed, is_obj
+}
+
+claude_register :: proc(cli: ^Cli, exe: string) {
+	hook_apply(cli, exe)
+}
+
+claude_unregister :: proc(cli: ^Cli) {
+	hook_remove(cli)
+}
+
+claude_status :: proc(cli: ^Cli) -> []Hook_Registration {
+	root, ok := settings_load(cli, claude_settings(cli))
+	out := make([dynamic]Hook_Registration)
+	hooks_claude := HOOKS_CLAUDE
+	for h in hooks_claude {
+		append(&out, Hook_Registration{event = h.event, sub = h.sub, on = ok && hook_present(root, h)})
+	}
+	return out[:]
+}
 
 HOOK_TIMEOUT :: 10
 
@@ -163,50 +225,6 @@ entry_is_ours :: proc(e: json.Value, h: Hook) -> bool {
 		}
 	}
 	return true
-}
-
-// cmd_hooks shows which hooks are registered, and turns them all on or
-// off. On needs this binary's own path, the way install writes it.
-cmd_hooks :: proc(cli: ^Cli, args: []string) -> int {
-	if len(args) > 1 || (len(args) == 1 && args[0] != "on" && args[0] != "off") {
-		return fail(cli, "usage: brain hooks [on|off]")
-	}
-	if len(args) == 1 {
-		if args[0] == "off" {
-			hook_remove(cli)
-		} else {
-			exe := getenv(cli, "BRAIN_EXE")
-			if exe == "" {
-				found, err := os.get_executable_path(context.allocator)
-				if err != nil {
-					return fail(cli, "cannot find this binary's own path")
-				}
-				exe = found
-			}
-			hook_apply(cli, posix_path(exe))
-		}
-	}
-	file := claude_settings(cli)
-	root, ok := settings_load(cli, file)
-	if !ok {
-		return 1
-	}
-	if cli.json {
-		w := jw_make()
-		jw_obj(&w)
-		hooks_claude := HOOKS_CLAUDE
-		for h in hooks_claude {
-			jw_field_bool(&w, h.sub, hook_present(root, h))
-		}
-		jw_end_obj(&w)
-		jw_flush(cli, &w)
-		return 0
-	}
-	hooks_claude := HOOKS_CLAUDE
-	for h in hooks_claude {
-		outf(cli, "%-18s brain %-7s %s\n", h.event, h.sub, hook_present(root, h) ? "on" : "off")
-	}
-	return 0
 }
 
 // settings_load parses the settings file, or returns an empty object when

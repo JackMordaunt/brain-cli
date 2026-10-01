@@ -39,12 +39,14 @@ Adapter :: struct {
 	// The turns and tool calls of one transcript. A transcript with no
 	// title is a headless API run, not a conversation, and yields nothing.
 	emit: proc(cli: ^Cli, file: string) -> Transcript,
+	// The same with no title required, for a session still running.
+	scan: proc(cli: ^Cli, file: string) -> Transcript,
 }
 
 ADAPTERS :: [3]Adapter {
-	{name = "claude", list = claude_list, emit = claude_emit},
-	{name = "pi", list = pi_list, emit = pi_emit},
-	{name = "fixture", list = fixture_list, emit = fixture_emit},
+	{name = "claude", list = claude_list, emit = claude_emit, scan = claude_scan},
+	{name = "pi", list = pi_list, emit = pi_emit, scan = pi_scan},
+	{name = "fixture", list = fixture_list, emit = fixture_emit, scan = fixture_emit},
 }
 
 // adapters_all names the adapters this machine can use. The fixture one
@@ -84,7 +86,15 @@ claude_list :: proc(cli: ^Cli) -> []string {
 	return files_with_suffix(claude_root(cli), ".jsonl")
 }
 
-claude_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
+claude_emit :: proc(cli: ^Cli, file: string) -> Transcript {
+	return claude_read(cli, file, need_title = true)
+}
+
+claude_scan :: proc(cli: ^Cli, file: string) -> Transcript {
+	return claude_read(cli, file, need_title = false)
+}
+
+claude_read :: proc(cli: ^Cli, file: string, need_title: bool) -> (tr: Transcript) {
 	text, err := os.read_entire_file_from_path(file, context.allocator)
 	if err != nil {
 		return
@@ -97,7 +107,7 @@ claude_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 	if title == "" {
 		title = last_field(lines, `"type":"ai-title"`, "aiTitle")
 	}
-	if title == "" {
+	if title == "" && need_title {
 		return
 	}
 	cwd := ""
@@ -213,16 +223,28 @@ CLAUDE_SKIP :: [6]string {
 // pi transcripts: ~/.pi/agent/sessions/<cwd-slug>/<timestamp>_<id>.jsonl
 
 pi_root :: proc(cli: ^Cli) -> string {
-	return path.join(getenv(cli, "PI_HOME", path.join(cli.home, ".pi")), "agent", "sessions")
+	return path.join(pi_agent_dir(cli), "sessions")
 }
 
 pi_list :: proc(cli: ^Cli) -> []string {
 	return files_with_suffix(pi_root(cli), ".jsonl")
 }
 
-// pi's tool records are not read yet: its turns carry the text and the
-// tool calls stay out of the tool table until the format is pinned down.
-pi_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
+// pi's session file (docs/session-format.md in the pi package): a
+// `session` header with the id and cwd, then `message` entries whose
+// message is a user, assistant or toolResult message. A tool call is a
+// `toolCall` block in an assistant message (id, name, arguments); its
+// result is a toolResult message naming the call by toolCallId, with
+// isError.
+pi_emit :: proc(cli: ^Cli, file: string) -> Transcript {
+	return pi_read(cli, file, need_title = true)
+}
+
+pi_scan :: proc(cli: ^Cli, file: string) -> Transcript {
+	return pi_read(cli, file, need_title = false)
+}
+
+pi_read :: proc(cli: ^Cli, file: string, need_title: bool) -> (tr: Transcript) {
 	text, err := os.read_entire_file_from_path(file, context.allocator)
 	if err != nil {
 		return
@@ -242,7 +264,7 @@ pi_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 	if title == "" {
 		title = last_field(lines, `"type":"session_info"`, "name")
 	}
-	if title == "" {
+	if title == "" && need_title {
 		return
 	}
 	head := parse_line(lines[0])
@@ -256,6 +278,8 @@ pi_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 	cwd := json_string(head, "cwd")
 
 	turns := make([dynamic]Turn)
+	tools := make([dynamic]Tool)
+	by_id := make(map[string]int)
 	for l in lines {
 		v := parse_line(l)
 		obj, is_obj := v.(json.Object)
@@ -263,8 +287,40 @@ pi_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 			continue
 		}
 		role := json_string(v, "message", "role")
+		if role == "toolResult" {
+			if i, known := by_id[json_string(v, "message", "toolCallId")]; known && json_bool_at(v, "message", "isError") {
+				tools[i].ok = false
+			}
+			continue
+		}
 		if role != "user" && role != "assistant" {
 			continue
+		}
+		if role == "assistant" {
+			for block in content_blocks(obj["message"]) {
+				if json_string(block, "type") != "toolCall" {
+					continue
+				}
+				id := json_string(block, "id")
+				if id == "" {
+					continue
+				}
+				by_id[id] = len(tools)
+				append(
+					&tools,
+					Tool {
+						id = id,
+						turn_id = json_string(v, "id"),
+						ts = json_string(v, "timestamp"),
+						session = sid,
+						title = title,
+						cwd = cwd,
+						name = json_string(block, "name"),
+						input = pi_tool_input(block),
+						ok = true,
+					},
+				)
+			}
 		}
 		body := content_text(obj["message"])
 		skip := PI_SKIP
@@ -288,7 +344,18 @@ pi_emit :: proc(cli: ^Cli, file: string) -> (tr: Transcript) {
 			},
 		)
 	}
-	return Transcript{turns = turns[:]}
+	return Transcript{turns = turns[:], tools = tools[:]}
+}
+
+// pi_tool_input is the one argument worth searching: the command for
+// bash, the path for a file tool, the pattern for a search.
+pi_tool_input :: proc(block: json.Value) -> string {
+	for key in ([3]string{"command", "path", "pattern"}) {
+		if s := json_string(block, "arguments", key); s != "" {
+			return rune_prefix(collapse_space(s), TOOL_INPUT_MAX)
+		}
+	}
+	return ""
 }
 
 PI_SKIP :: [2]string{"<system-reminder>", "<command-name>"}
@@ -428,6 +495,15 @@ json_bool :: proc(v: json.Value, key: string) -> bool {
 	}
 	b, is_bool := obj[key].(json.Boolean)
 	return is_bool && bool(b)
+}
+
+// json_bool_at is json_bool one object down.
+json_bool_at :: proc(v: json.Value, outer, key: string) -> bool {
+	obj, ok := v.(json.Object)
+	if !ok {
+		return false
+	}
+	return json_bool(obj[outer], key)
 }
 
 // content_blocks is a message's content array, or nothing when the content

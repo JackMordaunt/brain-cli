@@ -223,10 +223,39 @@ does not repeat them.
 
 ## Memory that happens
 
-The agent never has to call find or propose. `brain prime` runs as a
-UserPromptSubmit hook: it reads the hook's JSON on stdin, takes the
-prompt's words less the ones that carry nothing (`PRIME_STOP`) and any
-pasted block, and finds what the vault holds about them. A bullet
+The agent never has to call find or propose. Three moments in a session
+carry it: the start, each prompt, and the point where the agent would
+stop. `brain pack`, `brain prime` and `brain settle` answer those moments
+and know no harness: prime takes the prompt and a session id as flags,
+settle a session id and the transcript's path. A harness adapter in
+`brain/hooks.odin`'s `HARNESSES` table is the thin layer per program:
+whether the program is on this machine, how to register the three
+commands with it, how to read the input it hands over, and how to word
+the reply that continues a turn. `brain hooks [on|off] [--harness
+<name>]` drives every harness here, and install and uninstall go through
+the same table.
+
+- **Claude Code** (`brain/harness_claude.odin`) registers three command
+  hooks in `~/.claude/settings.json`. Its hooks hand JSON over on stdin
+  (`prompt`, `session_id`, `transcript_path`, `stop_hook_active`), which
+  `claude_parse` reads, and a Stop hook continues with
+  `{"decision":"block","reason":...}`.
+- **pi** (`brain/harness_pi.odin`) is registered by writing one
+  TypeScript extension, `~/.pi/agent/extensions/brain.ts`, with the
+  binary's path inside it and a first line it is recognised by. The
+  extension runs pack at `session_start`, prime at `before_agent_start`
+  with the prompt after `--`, and settle at `agent_before_settle` with
+  the session file; each result goes to the model as a custom message
+  the transcript keeps and does not display, and settle's reason comes
+  back as `{"reason":...}`, which the extension appends with
+  `continue: true`. pi hands nothing over on stdin.
+
+Adding a harness is one file: a detect, a register and unregister, a
+status, a parse when the program speaks on stdin, and a reply.
+
+Prime takes the prompt's words less the ones that carry nothing
+(`PRIME_STOP`) and any pasted block, and finds what the vault holds
+about them. A bullet
 holding every term answers; when none does, the bullets holding enough
 of the terms do, a third of them and at least two, most covered first,
 so one shared word like git brings nothing. Note lines follow the same
@@ -237,15 +266,18 @@ again in that session, by prime, pack or find. A prompt that found
 nothing is told once a session that brain is there to ask, since no
 instruction may name it. The default budget is 600 tokens a prompt.
 
-`brain settle` runs as a Stop hook. It exits silently unless all of:
-the stop is not already a continuation (`stop_hook_active`), the
-session has six or more assistant turns, it changed something (an Edit,
-Write or Bash call), and no `brain propose` ran. Then, once per session
-(a stamp under the state directory), it answers `{"decision":"block",
-"reason":...}`: the ask to propose each durable fact the session settled
-or reply none, with the session's corrections (see "Lessons") quoted so
-the agent writes the lesson while it still knows why. The model already
-holding the context does the extraction; no second model is called.
+`brain settle` runs where the agent would stop. It exits silently unless
+all of: the stop is not already a continuation, the session has six or
+more assistant turns, it changed something (an edit, a write or a shell
+call, by tool names compared in lower case since harnesses spell them
+differently), and no `brain propose` ran. The transcript is read through
+the harness's recall adapter with the title requirement off (`scan`), so
+a session still running counts. Then, once per session (a stamp under
+the state directory), it replies in the harness's own words: the ask to
+propose each durable fact the session settled or reply none, with the
+session's corrections (see "Lessons") quoted so the agent writes the
+lesson while it still knows why. The model already holding the context
+does the extraction; no second model is called.
 
 The proof has a `brain-auto` condition for this: a home whose only
 difference from vanilla is the three hooks, and a CLAUDE.md that names

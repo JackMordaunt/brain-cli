@@ -210,7 +210,7 @@ lesson_moments :: proc(db: sqlite3.Db, days: int, project, session: string) -> [
 	fstmt, ferr := sqlite3.query(
 		db,
 		`select id, ts, session, title, cwd, input from tool
-		 where name = ? and ok = 0 and input <> '' and ts >= date('now', ?)
+		 where lower(name) = ? and ok = 0 and input <> '' and ts >= date('now', ?)
 		   and (? = '' or session = ?)
 		 order by session, ts`,
 		HOWTO_SHELL,
@@ -238,7 +238,7 @@ lesson_moments :: proc(db: sqlite3.Db, days: int, project, session: string) -> [
 			m.date = rune_prefix(m.ts, 10)
 			next, nerr := sqlite3.query(
 				db,
-				"select id, input, ok from tool where session=? and name=? and ts > ? order by ts limit ?",
+				"select id, input, ok from tool where session=? and lower(name)=? and ts > ? order by ts limit ?",
 				m.session,
 				HOWTO_SHELL,
 				m.ts,

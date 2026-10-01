@@ -17,7 +17,7 @@ import "jm:sqlite3"
 // can edit it.
 
 HOWTO_LIMIT :: 8 // sessions listed by --all
-HOWTO_SHELL :: "Bash" // the tool whose calls form a chain
+HOWTO_SHELL :: "bash" // the tool whose calls form a chain, in lower case: Claude says Bash, pi bash
 
 Howto :: struct {
 	session, title, date, cwd: string,
@@ -137,7 +137,7 @@ howto_best :: proc(db: sqlite3.Db, match, exclude: string) -> (h: Howto, found: 
 		 )
 		 select t.session, t.title, substr(t.ts,1,10), t.cwd, t.ts
 		 from hit h join tool t on t.rowid = h.rid
-		 where t.name = ? and t.ok = 1 and t.session <> ?
+		 where lower(t.name) = ? and t.ok = 1 and t.session <> ?
 		 order by h.s limit 1`,
 		match,
 		HOWTO_SHELL,
@@ -170,7 +170,7 @@ howto_chain :: proc(db: sqlite3.Db, session, anchor: string) -> []string {
 	cmds := make([dynamic]string)
 	for c in column_texts(
 		db,
-		"select input from tool where session=? and name=? and ok=1 and ts > ? and ts < ? order by ts",
+		"select input from tool where session=? and lower(name)=? and ok=1 and ts > ? and ts < ? order by ts",
 		session,
 		HOWTO_SHELL,
 		lo,
@@ -197,7 +197,7 @@ howto_sessions :: proc(db: sqlite3.Db, match, exclude: string, limit: int) -> []
 		 best as (
 		   select t.session, min(h.s) as s
 		   from hit h join tool t on t.rowid = h.rid
-		   where t.name = ? and t.ok = 1 and t.session <> ?
+		   where lower(t.name) = ? and t.ok = 1 and t.session <> ?
 		   group by t.session
 		 )
 		 select b.session, t.title, substr(t.ts,1,10), t.cwd, t.ts

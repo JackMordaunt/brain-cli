@@ -296,8 +296,8 @@ Ask
   brain find <terms...>      what the vault knows; handle matches first, then lines from
                              longer notes; --budget N tokens
   brain pack [<project>]     the briefing a session opens with; --budget N, --fresh
-  brain prime [<prompt>]     what the vault knows about one prompt, once per session; a
-                             Claude Code UserPromptSubmit hook reads the prompt on stdin
+  brain prime [<prompt>]     what the vault knows about one prompt, once per session; the
+                             hooks call it with --harness, --session, or JSON on stdin
   brain recall <terms...>    what past agent conversations said; --limit N, --full <id>,
                              --sessions, --prefix, --enable <agent>, --sources
   brain howto <terms...>     the shell commands that did it last time, from the transcripts;
@@ -306,8 +306,8 @@ Ask
   brain week [--since Nd]    the same for the last seven days; --project <name>, --no-git
 Remember
   brain propose '<bullet>'   add a fact for a person to review
-  brain settle               a Claude Code Stop hook: once per session that changed files and
-                             proposed nothing, ask the agent what it settled
+  brain settle               when the agent would stop: once per session that changed files and
+                             proposed nothing, ask it what it settled; --harness, --transcript
   brain lessons              where a person corrected an agent, and commands that failed then
                              worked, from the transcripts; --since Nd, --propose queues each
   brain inbox                what is unreviewed; approve <n> [--to LEARNINGS], drop <n>
@@ -336,7 +336,8 @@ Set up
   brain install [<vault>]    bind this machine to a vault; --dry-run shows the plan
   brain uninstall            undo those bindings; the vault is untouched
   brain locate [--tool]      the vault's path; --tool, this CLI's checkout
-  brain hooks [on|off]       the Claude Code hooks install registers: pack, prime, settle
+  brain hooks [on|off]       pack, prime and settle in every harness here: Claude Code, pi;
+                             --harness <name> for one
   brain update               replace this binary with the latest signed release
   brain version              this build
 
