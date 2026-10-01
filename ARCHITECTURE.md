@@ -133,6 +133,50 @@ on every turn. `regrade.sh` re-scores a finished run from its raw files, so
 a change to the grading never needs the agents run again. MODELS, REPEATS
 and CONDITIONS widen a run; results land under `build/proof/<stamp>/`.
 
+## Facts that prove themselves
+
+A bullet is stale by its date alone until something checks it. `brain
+verify` reads each core bullet's fact for the claims a machine can test:
+a path under a root machines have (`PATH_ROOTS`; a lone `/flag` or a
+URL's path is not one), a file in the vault named with or without its
+`AI/` prefix, a `brain <subcommand>` against `COMMANDS`, and a commit of
+seven or more hex characters, looked for in the repositories the same
+bullet names, else in every repository the transcripts saw an agent work
+in. The verdicts land in a `claims` table in the index, carried across
+reindexes until the next run, and the failures print one per line.
+`--apply` rewrites the date on every bullet whose claims all passed, a
+markdown edit the person commits, so the date means checked rather than
+old. On the working vault the first run named a checkout that had moved
+and commits no local repository held.
+
+Doctor gained three reads on top of its sections: the claims that failed
+the last verify; `suspect`, a bullet served at rank three or better
+within ten turns before the person corrected the agent in that session,
+which joins the find log to the transcripts on the session id; and
+`contradictions`, two core bullets that answer to one handle or alias
+and share no content word of four or more letters.
+
+## Reinforcement
+
+The find log says what was served; `brain learn` says whether it helped.
+A serve was used when the session ran no later lookup on the bullet's
+names, no correction followed within ten turns, and, the strong form, an
+assistant turn went on to name the handle. The verdicts go to a
+`serve_outcome` table. A query word of four or more letters that led to
+a used bullet and is not among its names becomes an alias candidate once
+three distinct sessions agree; `--apply` writes it into the bullet's
+alias list. Aliases and synonym terms no query contained in 180 days are
+listed as dead, synonyms pruned on `--apply`, once fifty queries are
+logged. Every weight stays text a person can read and reverse.
+
+Ranking by use is an experiment, off by default: with
+`BRAIN_RANK=weighted`, find subtracts `min(1.0, 0.5 ln(1 + used))` from
+a bullet's bm25, never for serves alone and never for a bullet that
+failed verify, since a bullet served because it ranks high would
+otherwise rank higher for being served. `--plain` turns it off for one
+call and the proof's `brain-weighted` condition, which starts from this
+machine's own log, decides whether it ships.
+
 ## One voice, one JSON face
 
 Output speaks in outcomes: what the vault knows, what is waiting, what a
@@ -167,11 +211,48 @@ Each serve is logged as a query with its bytes.
 
 `brain install` registers `brain pack` as a Claude Code SessionStart hook
 in `~/.claude/settings.json`, for a session's start, `/clear` and
-compaction, beside whatever hooks are there. A miss prints nothing, so a
-repository the vault knows nothing about costs no error. The hook is
-recognised by its command: a second install adds nothing and `brain
-uninstall` removes only it. A settings file that does not parse is left
-alone and named, since a bad write there would take every hook with it.
+compaction, beside whatever hooks are there, and two more hooks with it
+(see "Memory that happens" below). A miss prints nothing, so a
+repository the vault knows nothing about costs no error. Each hook is
+recognised by its command: a second install adds nothing, `brain
+uninstall` removes only them, and `brain hooks [on|off]` shows and
+toggles the three. A settings file that does not parse is left alone and
+named, since a bad write there would take every hook with it. The pack
+logs the handles it served, like a find, so a prime in the same session
+does not repeat them.
+
+## Memory that happens
+
+The agent never has to call find or propose. `brain prime` runs as a
+UserPromptSubmit hook: it reads the hook's JSON on stdin, takes the
+prompt's words less the ones that carry nothing (`PRIME_STOP`) and any
+pasted block, and finds what the vault holds about them. A bullet
+holding every term answers; when none does, the bullets holding enough
+of the terms do, a third of them and at least two, most covered first,
+so one shared word like git brings nothing. Note lines follow the same
+way, a quarter of the terms and at least two, since a line is one
+wrapped line of a paragraph. Everything printed is logged as served to
+the session, bullets by handle and lines by locator, and is not served
+again in that session, by prime, pack or find. A prompt that found
+nothing is told once a session that brain is there to ask, since no
+instruction may name it. The default budget is 600 tokens a prompt.
+
+`brain settle` runs as a Stop hook. It exits silently unless all of:
+the stop is not already a continuation (`stop_hook_active`), the
+session has six or more assistant turns, it changed something (an Edit,
+Write or Bash call), and no `brain propose` ran. Then, once per session
+(a stamp under the state directory), it answers `{"decision":"block",
+"reason":...}`: the ask to propose each durable fact the session settled
+or reply none, with the session's corrections (see "Lessons") quoted so
+the agent writes the lesson while it still knows why. The model already
+holding the context does the extraction; no second model is called.
+
+The proof has a `brain-auto` condition for this: a home whose only
+difference from vanilla is the three hooks, and a CLAUDE.md that names
+nothing. On sonnet, 2026-10-01, it answered every bullet question at
+half the tokens of the `brain` condition in one turn, and lost the
+questions whose answer lives only in a note until prime served note
+lines too.
 
 ## Proposals
 
@@ -263,12 +344,46 @@ has discussed something does not find itself. A conversation resumed into a
 second file can still surface its earlier half; `--all` turns the filter
 off.
 
+### Tool calls
+
+Beside the turns, the recall database keeps a `tool` table: every call
+the agent made, with the one input worth searching (a shell command, a
+path, a pattern) and whether its result was an error, read from the
+transcript's `tool_use` blocks and the `tool_result` blocks that answer
+them by id. A database written before the table existed fills it with
+one full pass. Three commands read it:
+
+- `brain howto <terms>` finds the session whose shell commands or title
+  match best and replays the chain around the best successful call: the
+  shell commands between the prompt before it and the prompt after,
+  failures dropped, a command repeated back to back kept once. `--all`
+  lists the sessions; `--propose` writes the chain into the repository's
+  state folder in the vault (`<repo>/howto-<slug>.md`) with a bullet
+  pointing at it, sourced `recall:<session>`.
+- `brain lessons` lists the moments nothing read back: a short user turn
+  that opens with a correction marker (`LESSON_STARTS`, matched as whole
+  words, with `LESSON_NOT_STARTS` for "no problem") or holds one
+  (`LESSON_PHRASES`) after something the agent said; and a shell command
+  that failed and then, within three calls, worked once retouched (same
+  program, an edit in three characters covers the difference). No model
+  is involved. `--propose` queues each as an inbox bullet whose source
+  is the turn id, so `brain recall --full <id>` shows why. Settle quotes
+  the session's corrections, and doctor's suspect section joins them to
+  the find log.
+- `brain day [YYYY-MM-DD]` and `brain week [--since Nd]` are the
+  timeline: sessions by local day and the directory they ran in, each
+  with its title, its first prompt as the goal, its span and turn count,
+  then the repository's commits in the window from `git log` when the
+  directory is on this machine.
+
 ### Adding an agent
 
 One `Adapter` in `brain/adapters.odin`: a `list` proc that names every
 transcript on the machine and an `emit` proc that turns one transcript into
-`Turn` values (id, timestamp, role, session, title, cwd, body). Add it to
-`ADAPTERS` and `brain recall --enable <name>` knows it.
+a `Transcript`: `Turn` values (id, timestamp, role, session, title, cwd,
+body) and `Tool` values (id, the turn's id, timestamp, name, input, ok).
+Add it to `ADAPTERS` and `brain recall --enable <name>` knows it. The
+fixture adapter reads a sibling `<name>.tools.tsv` for its calls.
 
 A transcript with no title is a headless API run, not a conversation, and
 should emit nothing. That is the difference between every file on disk and
@@ -296,7 +411,7 @@ them up.
 | `testdata/` | the fixture vault and transcripts the test suite runs against |
 | `branding/` | the mark and hero lockup, light and dark, SVG and PNG; `just branding` regenerates them |
 | `tools/logo/` | the logo lab: the mark's geometry, its SVG writer, and the grid of variations it was chosen from (`just logo`) |
-| `tools/proof/` | the proof: the same questions asked of real Claude Code sessions with no notes, with the vault as plain markdown, and through brain; `just proof`, then `regrade.sh` to re-score a run without re-running it |
+| `tools/proof/` | the proof: the same questions asked of real Claude Code sessions with no notes, with the vault as plain markdown, through brain, and with the hooks alone (`brain-auto`); `just proof`, then `regrade.sh` to re-score a run without re-running it |
 | `tools/desk/` | the desk prototype: the control room over a vault on jm:ui/material, against fixture data (`just desk`) |
 | `tools/host/` | the window both tools run in; `just hot DIR TITLE` rebuilds a child on save and the host respawns it |
 | `jm/` | the [jm collection](https://mordaunt.dev/code/jm), pinned as a submodule |

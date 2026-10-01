@@ -58,7 +58,10 @@ What a bare folder does not give an agent, brain layers on top:
 - **A vocabulary.** `AI/synonyms.tsv` widens each query term, so `systemd` also finds the bullet that says `user unit`.
 - **Bullets that stay well formed.** `brain lint` runs in a pre-commit hook: one fact, a source, a date. `brain secrets` refuses a credential.
 - **A record of what was asked.** Every `find` is logged. `brain log` shows the misses that still miss. `brain doctor` shows what is stale or duplicated.
-- **Memory of what was said.** `brain recall <terms>` searches your agents' own conversation logs, as ranked snippets.
+- **Memory of what was said.** `brain recall <terms>` searches your agents' own conversation logs, as ranked snippets. `brain howto <terms>` replays the shell commands that did a task last time; `brain day` and `brain week` say what was worked on, by repository.
+- **Lessons nobody wrote.** `brain lessons` finds where you corrected an agent, and the command that failed before the one that worked, and proposes each as a fact with the conversation it came from as its source.
+- **Facts that prove themselves.** `brain verify` tests what a bullet claims: the path exists, the file is in the vault, the commit is in a repository here. `brain doctor` names what failed, and which bullet was served just before you corrected the agent.
+- **Memory that happens.** Three Claude Code hooks: the briefing at session start, what the vault knows about each prompt as you type it, and once per session that changed files, the ask to write down what it settled. The agent never has to be told to look.
 - **A cache, not a database.** The SQLite index is disposable. Delete it, `brain reindex` rebuilds it from the markdown.
 - **One binary that keeps itself current.** `brain update` fetches a signed release. It never updates unasked.
 
@@ -98,7 +101,12 @@ repeats, 2026-09-29; tokens are everything the run processed.
 | fable | `brain` | 88% | 51,641 | 2.8 |
 
 Notes make the agent right; `brain` makes that cost a third to a half of
-searching the files by hand. Haiku answered from training without looking
+searching the files by hand. With the hooks alone, no instruction naming
+brain and the prompt primed as it is typed (the `brain-auto` condition,
+sonnet, one repeat, 2026-10-01), the same sixteen questions came back
+15/16 correct at 49,397 tokens mean, 34,576 median, 1.5 turns, against
+`brain` at 15/16, 93,248 mean and 2.7 turns on the same day: half the
+tokens, the same answers, nothing asked of the agent. Haiku answered from training without looking
 in most runs under both notes conditions (54% and 62% correct), which is
 what the session hook is for: it pushes the repository's briefing into
 context instead of waiting for a lookup.
@@ -120,8 +128,17 @@ brain export <agent>...   write this repository's pack into the agent's own file
 brain import claude       propose what Claude Code remembered on its own; or any markdown list
 brain mcp                 the same over MCP on stdio, for agents without a shell
 brain recall <terms...>   search past agent conversations
+brain howto <terms...>    the shell commands that did it last time; --all, --propose
+brain day | week          what was worked on, by day and repository, with the commits
+brain lessons             corrections and retries from the transcripts; --propose queues each
+brain prime [<prompt>]    what the vault knows about one prompt; a UserPromptSubmit hook
+brain settle              a Stop hook: once per session that changed files, ask what it settled
+brain hooks [on|off]      the three Claude Code hooks install registers
+brain verify [<handle>]   test the claims bullets make; --apply dates what passed
+brain learn               query words to wire as aliases, aliases nobody asks for; --apply
 brain locate              print the vault's path
-brain doctor              what is stale, thin, duplicated or orphaned
+brain doctor              what is stale, thin, duplicated, orphaned, failed verify, or
+                          was served just before a correction
 brain log                 what keeps missing, and who asks
 brain ledger              what lookups cost and saved, by caller, session and day
 brain lint                check bullet form
