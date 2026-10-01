@@ -45,7 +45,7 @@ recall_finds_snippets_titles_and_sessions :: proc(t: ^testing.T) {
 	exec(f.cli, "recall", "--enable", "fixture")
 	o, _, code := exec(f.cli, "recall", "--sync")
 	testing.expect_value(t, code, 0)
-	testing.expect_value(t, o, "ingested 2 transcript(s)\nturns: 3\ntool calls: 4\n")
+	testing.expect_value(t, o, "ingested 2 transcript(s)\nturns: 4\ntool calls: 4\n")
 
 	o, _, code = exec(f.cli, "recall", "playhead")
 	testing.expect_value(t, code, 0)

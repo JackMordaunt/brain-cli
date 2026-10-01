@@ -223,6 +223,8 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_recall(cli, rest)
 	case "howto":
 		return cmd_howto(cli, rest)
+	case "lessons":
+		return cmd_lessons(cli, rest)
 	case "day":
 		return cmd_day(cli, rest)
 	case "week":
@@ -290,6 +292,8 @@ Ask
   brain week [--since Nd]    the same for the last seven days; --project <name>, --no-git
 Remember
   brain propose '<bullet>'   add a fact for a person to review
+  brain lessons              where a person corrected an agent, and commands that failed then
+                             worked, from the transcripts; --since Nd, --propose queues each
   brain inbox                what is unreviewed; approve <n> [--to LEARNINGS], drop <n>
   brain review [<mode>]      after (default): a proposal answers finds at once, marked
                              unreviewed, until dropped; before: only once approved

@@ -35,7 +35,7 @@ timeline_groups_sessions_by_day_and_repo :: proc(t: ^testing.T) {
 	o, _, code = exec(f.cli, "week", "--since", "9999d", "--no-git")
 	testing.expect_value(t, code, 0)
 	testing.expect(t, strings.contains(o, "  omacut  /tmp/omacut\n"), o)
-	testing.expect(t, strings.contains(o, "The playhead session  (2 turns, fixture)"), o)
+	testing.expect(t, strings.contains(o, "The playhead session  (3 turns, fixture)"), o)
 	testing.expect(t, strings.contains(o, "      the playhead jumps to the frame you clicked"), o)
 	testing.expect(t, strings.contains(o, "  other  /tmp/other\n"), o)
 	testing.expect(t, strings.index(o, "omacut") < strings.index(o, "other"), "days in order")
