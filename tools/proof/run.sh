@@ -11,6 +11,7 @@
 #   CONDITIONS="brain brain-notes brain-source brain-both" tools/proof/run.sh   # find's knobs
 #   CONDITIONS="brain-open" tools/proof/run.sh   # brain, and the agent may open a note find names
 #   CONDITIONS="brain-auto" tools/proof/run.sh   # no instructions at all; the hooks prime each prompt
+#   CONDITIONS="brain-weighted" tools/proof/run.sh   # find boosts bullets this machine's sessions used
 #
 # Needs: claude (logged in), python3, a built build/release/brain, and a
 # vault (VAULT=<path>, else `brain locate`). Writes build/proof/<stamp>/:
@@ -39,6 +40,11 @@ mkdir -p "$work/vault"
 (cd "$vault" && find . -name '*.md' -not -path './.git/*' -print0 | cpio -0 -pdm --quiet "$work/vault")
 cp "$vault/AI/synonyms.tsv" "$work/vault/AI/" 2>/dev/null || true
 ln -s "$brain_bin" "$work/bin/brain"
+# brain-weighted ranks by what this machine's sessions used, so the proof's
+# index starts from the machine's own log, which reindex carries across.
+if [[ " $conditions " == *" brain-weighted "* ]]; then
+  cp "${XDG_STATE_HOME:-$HOME/.local/state}/brain/brain.db" "$work/state/brain.db" 2>/dev/null || true
+fi
 BRAIN_VAULT="$work/vault" BRAIN_STATE="$work/state" "$brain_bin" reindex >/dev/null
 # brain-auto's home carries the three hooks install registers and nothing
 # else: the pack at session start, prime on every prompt, settle on stop.
@@ -82,9 +88,11 @@ for r in $(seq 1 "$repeats"); do
       notes=always
       with_source=""
       home="$work/home"
+      rank=""
       case "$c" in
         brain) path="$work/bin:$path" ;;
         brain-auto) path="$work/bin:$path"; home="$work/home-auto" ;;
+        brain-weighted) dir=brain; path="$work/bin:$path"; rank=weighted ;;
         brain-open) path="$work/bin:$path" ;;
         brain-notes) dir=brain; path="$work/bin:$path"; notes=short ;;
         brain-source) dir=brain; path="$work/bin:$path"; with_source=source ;;
@@ -92,7 +100,7 @@ for r in $(seq 1 "$repeats"); do
       esac
       (cd "$work/$dir" && env -i HOME="$home" PATH="$path" TERM=dumb LANG=C.UTF-8 \
           BRAIN_VAULT="$work/vault" BRAIN_STATE="$work/state" BRAIN_NO_UPDATE=1 \
-          BRAIN_NOTES="$notes" BRAIN_TERSE="$with_source" \
+          BRAIN_NOTES="$notes" BRAIN_TERSE="$with_source" BRAIN_RANK="$rank" \
           claude -p "$question" --output-format json --model "$model" --max-turns 12 \
           --max-budget-usd 1 --no-session-persistence \
           --append-system-prompt "Answer in at most three sentences." \

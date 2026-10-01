@@ -18,10 +18,13 @@ import "jm:sqlite3"
 // proposed, it asks the model to propose what the session settled, with
 // the corrections the session holds, and then lets it stop.
 
-PRIME_BUDGET :: 400 // tokens per prompt
+PRIME_BUDGET :: 600 // tokens per prompt
 PRIME_TERMS :: 12 // query terms taken from a prompt
 PRIME_OR_LIMIT :: 40 // bullets considered when no bullet holds every term
-PRIME_HEAD :: "# brain: what the vault knows about this prompt; `brain find <terms>` for more\n"
+PRIME_DOC_LIMIT :: 25 // note lines considered when none holds every term
+PRIME_DOCS :: 5 // note lines served at most
+PRIME_HEAD :: "# brain: what the vault knows about this prompt; `brain find <terms>` for more, the files are under `brain locate`\n"
+PRIME_HINT :: "# brain: nothing in the vault names this prompt; `brain find <terms>` searches it, `brain recall <terms>` past conversations\n"
 
 SETTLE_MIN_TURNS :: 6 // assistant turns before a session is worth settling
 SETTLE_CORRECTIONS :: 5 // corrections quoted back at most
@@ -39,6 +42,8 @@ PRIME_STOP :: [?]string {
 	"something", "anything", "everything", "think", "know", "look", "give", "show", "tell", "find",
 	"write", "read", "change", "fix", "check", "work", "working", "works", "still", "again", "same",
 	"new", "old", "first", "last", "next", "other", "each", "every", "much", "many", "very", "really",
+	"say", "says", "said", "list", "lists", "name", "names", "plan", "plans", "handle", "through",
+	"should", "mean", "means", "approach", "approaches", "kind", "sort", "part", "between",
 }
 
 // wants_stdin says whether a command line reads the hook's JSON: settle
@@ -166,8 +171,19 @@ cmd_prime :: proc(cli: ^Cli, args: []string) -> int {
 		hits = covered(query_fts(db, m.or, PRIME_OR_LIMIT), terms)
 	}
 	hits, _ = cut_to_exact(hits, raw)
+	found := len(hits) > 0
 	if session != "" {
 		hits = unserved(db, hits, session)
+	}
+	// A fact that lives only in a note, a plan or a handoff, follows the
+	// bullets the way find prints it: the lines holding every term, else
+	// the ones holding enough of them, most covered first.
+	docs := query_lines(db, m.prose_and)
+	if len(docs) == 0 {
+		docs = covered_docs(query_lines(db, m.prose_or, PRIME_DOC_LIMIT), terms)
+	}
+	if session != "" {
+		docs = unserved_docs(db, docs, session)
 	}
 	if cli.json {
 		w := jw_make()
@@ -179,11 +195,27 @@ cmd_prime :: proc(cli: ^Cli, args: []string) -> int {
 			jw_hit(&w, h)
 		}
 		jw_end_arr(&w)
+		jw_key(&w, "documents")
+		jw_arr(&w)
+		for d in docs {
+			jw_obj(&w)
+			jw_field(&w, "locator", d.locator)
+			jw_field(&w, "text", d.text)
+			jw_end_obj(&w)
+		}
+		jw_end_arr(&w)
 		jw_end_obj(&w)
 		jw_flush(cli, &w)
 		return 0
 	}
-	if len(hits) == 0 {
+	if len(hits) == 0 && len(docs) == 0 {
+		// Once a session, a prompt that found nothing says that brain is
+		// there to ask, since no instruction may name it. A hit already
+		// served is not nothing.
+		if !found && session != "" && scalar_int(db, "select count(*) from queries where session=? and q like 'prime %'", session) == 0 {
+			log_query(db, strings.concatenate({"prime ", raw}), nil, caller, session, len(PRIME_HINT))
+			out(cli, PRIME_HINT)
+		}
 		return 0
 	}
 	// Only what is printed is logged as served, so the budget's cut is
@@ -198,6 +230,23 @@ cmd_prime :: proc(cli: ^Cli, args: []string) -> int {
 		}
 		strings.write_string(&b, line)
 		append(&kept, h)
+	}
+	if len(docs) > 0 {
+		for d, i in docs {
+			line := strings.concatenate({rune_prefix(strings.concatenate({d.locator, "  ", d.text}), 220), "\n"})
+			head := i == 0 ? len(NOTES_HEAD) : 0
+			if strings.builder_len(b) + head + len(line) > budget {
+				break
+			}
+			if i == 0 {
+				strings.write_string(&b, NOTES_HEAD)
+			}
+			strings.write_string(&b, line)
+			// A served line is logged by its locator, so it too is served
+			// once a session.
+			file, _, _ := strings.partition(d.locator, ":")
+			append(&kept, Hit{file = file, handle = d.locator})
+		}
 	}
 	if len(kept) == 0 {
 		return 0
@@ -296,17 +345,75 @@ covered :: proc(hits: []Hit, terms: []string) -> []Hit {
 	return ordered
 }
 
-// unserved is hits less the ones this session was already given, by
-// prime, pack or find.
-unserved :: proc(db: sqlite3.Db, hits: []Hit, session: string) -> []Hit {
+// covered_docs is covered for note lines: the ones holding enough of the
+// terms, most covered first, PRIME_DOCS at most. A line is a snapshot,
+// so it needs two terms however short the prompt; and a line is one
+// wrapped line of a paragraph, so a quarter of a long prompt is enough.
+covered_docs :: proc(docs: []Doc, terms: []string) -> []Doc {
+	need := min(len(terms), max(2, (len(terms) + 3) / 4))
+	Scored :: struct {
+		doc:   Doc,
+		count: int,
+		order: int,
+	}
+	kept := make([dynamic]Scored)
+	for d, i in docs {
+		text := strings.to_lower(d.text)
+		n := 0
+		for t in terms {
+			if strings.contains(text, t) {
+				n += 1
+			}
+		}
+		if n >= need {
+			append(&kept, Scored{doc = d, count = n, order = i})
+		}
+	}
+	slice.sort_by(kept[:], proc(a, b: Scored) -> bool {
+		if a.count != b.count {
+			return a.count > b.count
+		}
+		return a.order < b.order
+	})
+	ordered := make([dynamic]Doc)
+	for k in kept {
+		if len(ordered) == PRIME_DOCS {
+			break
+		}
+		append(&ordered, k.doc)
+	}
+	return ordered[:]
+}
+
+// served_keys is everything this session was already given, by prime,
+// pack or find: bullets by handle, note lines by locator.
+served_keys :: proc(db: sqlite3.Db, session: string) -> map[string]bool {
 	served := make(map[string]bool)
 	for h in column_texts(db, "select distinct h.handle from query_hits h join queries q on q.id = h.query_id where q.session = ?", session) {
 		served[strings.clone(h)] = true
 	}
+	return served
+}
+
+// unserved is hits less the ones this session was already given.
+unserved :: proc(db: sqlite3.Db, hits: []Hit, session: string) -> []Hit {
+	served := served_keys(db, session)
 	kept := make([dynamic]Hit)
 	for h in hits {
 		if !served[h.handle] {
 			append(&kept, h)
+		}
+	}
+	return kept[:]
+}
+
+// unserved_docs is docs less the lines this session was already given.
+unserved_docs :: proc(db: sqlite3.Db, docs: []Doc, session: string) -> []Doc {
+	served := served_keys(db, session)
+	kept := make([dynamic]Doc)
+	for d in docs {
+		if !served[d.locator] {
+			append(&kept, d)
 		}
 	}
 	return kept[:]

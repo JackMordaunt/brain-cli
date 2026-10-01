@@ -186,8 +186,9 @@ Doc :: struct {
 	text:    string,
 }
 
-// query_lines returns matching prose from outside the core files, up to 5.
-query_lines :: proc(db: sqlite3.Db, match: string) -> []Doc {
+// query_lines returns matching prose from outside the core files, up to
+// limit, five by default.
+query_lines :: proc(db: sqlite3.Db, match: string, limit := 5) -> []Doc {
 	docs := make([dynamic]Doc)
 	stmt, err := sqlite3.query(
 		db,
@@ -195,8 +196,9 @@ query_lines :: proc(db: sqlite3.Db, match: string) -> []Doc {
 		 from lines_fts f join lines l on l.id = f.rowid
 		 where lines_fts match ?
 		   and l.file not in ('AI/MEMORY.md','AI/LEARNINGS.md','AI/TUNINGS.md','AI/INBOX.md')
-		 order by bm25(lines_fts) limit 5`,
+		 order by bm25(lines_fts) limit ?`,
 		match,
+		i64(limit),
 	)
 	if err != nil {
 		return nil
@@ -278,6 +280,7 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	want_notes := false
 	notes_short := getenv(cli, "BRAIN_NOTES") == "short"
 	with_source := getenv(cli, "BRAIN_TERSE") == "source"
+	weighted := rank_weighted(cli)
 	terms := make([dynamic]string)
 	rest := args
 	for len(rest) > 0 {
@@ -290,6 +293,8 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 			form = .Raw
 		case "--notes":
 			want_notes = true
+		case "--plain":
+			weighted = false
 		case "--budget":
 			n, ok := 0, false
 			if len(rest) > 0 {
@@ -322,6 +327,9 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	hits := query_fts(db, m.and)
 	if len(hits) == 0 {
 		hits = query_fts(db, m.or)
+	}
+	if weighted {
+		hits = weigh(db, hits)
 	}
 	named: bool
 	hits, named = cut_to_exact(hits, raw)

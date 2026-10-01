@@ -38,9 +38,19 @@ prime_serves_each_bullet_once_per_session :: proc(t: ^testing.T) {
 	f.cli.stdin = `{"session_id":"s-two","hook_event_name":"UserPromptSubmit","prompt":"sqlite?"}`
 	o, _, _ = exec(f.cli, "prime")
 	testing.expect(t, strings.contains(o, "**sqlite**"), o)
+	// A prompt about nothing gets the hint once per session, then nothing.
 	f.cli.stdin = `{"session_id":"s-two","hook_event_name":"UserPromptSubmit","prompt":"what is the weather"}`
 	o, _, _ = exec(f.cli, "prime")
 	testing.expect_value(t, o, "")
+	f.cli.stdin = `{"session_id":"s-hint","hook_event_name":"UserPromptSubmit","prompt":"what is the weather"}`
+	o, _, _ = exec(f.cli, "prime")
+	testing.expect_value(t, o, PRIME_HINT)
+	o, _, _ = exec(f.cli, "prime")
+	testing.expect_value(t, o, "")
+	// A fact only a note holds follows the bullets.
+	f.cli.stdin = `{"session_id":"s-note","hook_event_name":"UserPromptSubmit","prompt":"later the git library is chosen?"}`
+	o, _, _ = exec(f.cli, "prime")
+	testing.expect(t, strings.contains(o, NOTES_HEAD) && strings.contains(o, "handoffs/"), o)
 	// A sentence no bullet holds whole is answered by the bullets holding
 	// enough of it; one shared word is not enough.
 	f.cli.stdin = `{"session_id":"s-two","hook_event_name":"UserPromptSubmit","prompt":"which git library does the app bind, and does it shell out to a binary on PATH for the index?"}`

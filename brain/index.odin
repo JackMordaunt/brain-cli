@@ -138,6 +138,7 @@ create table queries(id integer primary key, ts text, q text, hits integer,
 create table query_hits(query_id integer, file text, handle text, rank integer);
 create table claims(file text, line integer, handle text, kind text, text text,
   verdict text, why text, checked text);
+create table serve_outcome(query_id integer, handle text, used integer, strong integer);
 create table meta(key text primary key, value text);
 `
 
@@ -312,6 +313,7 @@ carry_log :: proc(db: sqlite3.Db, old_path: string) {
 	sqlite3.exec(db, "insert into query_hits select * from old.query_hits")
 	// Verdicts are evidence of a run, carried until the next one.
 	sqlite3.exec(db, "insert into claims select * from old.claims")
+	sqlite3.exec(db, "insert into serve_outcome select * from old.serve_outcome")
 }
 
 // replace_file moves src over dst, which may exist.

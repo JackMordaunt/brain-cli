@@ -247,6 +247,8 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_doctor(cli, rest)
 	case "verify":
 		return cmd_verify(cli, rest)
+	case "learn":
+		return cmd_learn(cli, rest)
 	case "lint":
 		return cmd_lint(cli, rest)
 	case "secrets":
@@ -320,6 +322,8 @@ Keep it healthy
   brain doctor               what is stale, thin, oversized, duplicated or orphaned, which
                              notes a newer bullet may have superseded, which claims failed
                              verify, which bullets were served just before a correction
+  brain learn                which query words found a bullet they do not name, and which
+                             aliases nobody asks for; --apply edits the bullets and vocabulary
   brain verify [<handle>..]  test the claims bullets make: paths, vault files, subcommands,
                              commits; --apply dates today every bullet whose claims passed
   brain log                  what keeps missing, and who asks
