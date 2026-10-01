@@ -28,7 +28,7 @@ import "../term"
 // environment and the recorded tool path both outrank it.
 BRAIN_TOOL :: #config(BRAIN_TOOL, "")
 
-SCHEMA          :: 5 // bump when a table changes shape; ensure_db then rebuilds
+SCHEMA          :: 6 // bump when a table changes shape; ensure_db then rebuilds
 MAXLEN          :: 400 // soft cap on a bullet's fact text
 STALE_DAYS      :: 90 // a fact older than this wants re-verification
 FIND_LIMIT      :: 8
@@ -245,6 +245,8 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_log(cli, rest)
 	case "doctor":
 		return cmd_doctor(cli, rest)
+	case "verify":
+		return cmd_verify(cli, rest)
 	case "lint":
 		return cmd_lint(cli, rest)
 	case "secrets":
@@ -315,8 +317,11 @@ Share
                              opencode, jules, junie, zed, warp), copilot, gemini, cursor, cline, kiro
   brain mcp                  the same tools over MCP on stdio, for agents without a shell
 Keep it healthy
-  brain doctor               what is stale, thin, oversized, duplicated or orphaned, and which
-                             notes a newer bullet may have superseded
+  brain doctor               what is stale, thin, oversized, duplicated or orphaned, which
+                             notes a newer bullet may have superseded, which claims failed
+                             verify, which bullets were served just before a correction
+  brain verify [<handle>..]  test the claims bullets make: paths, vault files, subcommands,
+                             commits; --apply dates today every bullet whose claims passed
   brain log                  what keeps missing, and who asks
   brain ledger [--days N]    what lookups cost and saved, by caller, session and day
   brain lint [--staged]      check bullet form; failures block a commit; --strict,

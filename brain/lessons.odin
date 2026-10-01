@@ -150,10 +150,10 @@ render_moments :: proc(moments: []Moment) -> string {
 }
 
 // lesson_moments is every correction and retry in the window, oldest
-// first; project narrows to one repository by name and session to one
-// conversation.
+// first; days of zero is no window. project narrows to one repository by
+// name and session to one conversation.
 lesson_moments :: proc(db: sqlite3.Db, days: int, project, session: string) -> []Moment {
-	since := strings.concatenate({"-", int_str(i64(days)), " day"})
+	since := days > 0 ? strings.concatenate({"-", int_str(i64(days)), " day"}) : "-100 year"
 	moments := make([dynamic]Moment)
 
 	// Corrections: a short user turn, opening with or holding a marker,

@@ -53,6 +53,7 @@ doctor_sections :: proc(nq: int) -> []Section {
 			 order by b.date limit 30`})
 	}
 	append(&s, Section{key = "zero_hit", title = "zero-hit queries", sql = "select q, count(*) n from queries where hits=0 group by q order by n desc limit 15"})
+	append(&s, Section{key = "failed_claims", title = "claims that failed the last brain verify: a path, file, subcommand or commit the bullet names is not there", sql = "select file, handle, kind, text, why, substr(checked,1,10) as checked from claims where verdict='failed' order by file, line"})
 	return s[:]
 }
 
@@ -167,6 +168,8 @@ cmd_doctor :: proc(cli: ^Cli, args: []string) -> int {
 	nq := scalar_int(db, "select count(*) from queries")
 	sections := doctor_sections(nq)
 	older := older_notes(db)
+	suspect := suspects(cli, db)
+	contra := contradictions(db)
 	if cli.json {
 		w := jw_make()
 		jw_obj(&w)
@@ -196,6 +199,30 @@ cmd_doctor :: proc(cli: ^Cli, args: []string) -> int {
 			jw_end_obj(&w)
 		}
 		jw_end_arr(&w)
+		jw_key(&w, "suspect")
+		jw_arr(&w)
+		for x in suspect {
+			jw_obj(&w)
+			jw_field(&w, "handle", x.handle)
+			jw_field(&w, "file", x.file)
+			jw_field(&w, "session", x.session)
+			jw_field(&w, "served", x.served)
+			jw_field(&w, "correction", x.user)
+			jw_end_obj(&w)
+		}
+		jw_end_arr(&w)
+		jw_key(&w, "contradictions")
+		jw_arr(&w)
+		for c in contra {
+			jw_obj(&w)
+			jw_field(&w, "name", c.name)
+			jw_field(&w, "a", c.a)
+			jw_field(&w, "a_file", c.a_file)
+			jw_field(&w, "b", c.b)
+			jw_field(&w, "b_file", c.b_file)
+			jw_end_obj(&w)
+		}
+		jw_end_arr(&w)
 		jw_end_obj(&w)
 		jw_flush(cli, &w)
 		return 0
@@ -215,6 +242,14 @@ cmd_doctor :: proc(cli: ^Cli, args: []string) -> int {
 	out(cli, "\n== older notes that name what a newer bullet names: an agent may quote them over the bullet; mark or retire them ==\n")
 	for o in older {
 		outf(cli, "%s (%s): %d line(s) from :%d name **%s**\n", o.file, o.date, o.lines, o.first, strings.join(o.handles[:], "**, **"))
+	}
+	out(cli, "\n== suspect: served within ten turns before the person corrected the agent; the serve may have misled it ==\n")
+	for x in suspect {
+		outf(cli, "%s **%s** served %s, then: %s\n", x.file, x.handle, x.served, x.user)
+	}
+	out(cli, "\n== contradictions: two bullets answer to the same name and share no content word; one is wrong or they want merging ==\n")
+	for c in contra {
+		outf(cli, "%s: **%s** (%s) and **%s** (%s)\n", c.name, c.a, c.a_file, c.b, c.b_file)
 	}
 	return 0
 }
