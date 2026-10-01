@@ -221,6 +221,10 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_import(cli, rest)
 	case "recall":
 		return cmd_recall(cli, rest)
+	case "day":
+		return cmd_day(cli, rest)
+	case "week":
+		return cmd_week(cli, rest)
 	case "reindex", "sync": // sync is the old name; installed hooks still say it
 		return cmd_reindex(cli, rest)
 	case "ledger":
@@ -278,6 +282,8 @@ Ask
   brain pack [<project>]     the briefing a session opens with; --budget N, --fresh
   brain recall <terms...>    what past agent conversations said; --limit N, --full <id>,
                              --sessions, --prefix, --enable <agent>, --sources
+  brain day [YYYY-MM-DD]     what was worked on that day, by repository: sessions, goals, commits
+  brain week [--since Nd]    the same for the last seven days; --project <name>, --no-git
 Remember
   brain propose '<bullet>'   add a fact for a person to review
   brain inbox                what is unreviewed; approve <n> [--to LEARNINGS], drop <n>
