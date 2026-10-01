@@ -55,6 +55,8 @@ Cli :: struct {
 	db:           string,
 	recall_db:    string,
 	dry:          bool,
+	stdin:        string, // what a hook handed over; main reads it, a test sets it
+	has_stdin:    bool,
 	json:         bool, // --json: one object on stdout instead of text
 	tty:          bool, // stdout is a terminal; only main can know
 	style:        term.Style, // plain unless a person is watching; see term.detect
@@ -221,6 +223,12 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_import(cli, rest)
 	case "recall":
 		return cmd_recall(cli, rest)
+	case "prime":
+		return cmd_prime(cli, rest)
+	case "settle":
+		return cmd_settle(cli, rest)
+	case "hooks":
+		return cmd_hooks(cli, rest)
 	case "howto":
 		return cmd_howto(cli, rest)
 	case "lessons":
@@ -284,6 +292,8 @@ Ask
   brain find <terms...>      what the vault knows; handle matches first, then lines from
                              longer notes; --budget N tokens
   brain pack [<project>]     the briefing a session opens with; --budget N, --fresh
+  brain prime [<prompt>]     what the vault knows about one prompt, once per session; a
+                             Claude Code UserPromptSubmit hook reads the prompt on stdin
   brain recall <terms...>    what past agent conversations said; --limit N, --full <id>,
                              --sessions, --prefix, --enable <agent>, --sources
   brain howto <terms...>     the shell commands that did it last time, from the transcripts;
@@ -292,6 +302,8 @@ Ask
   brain week [--since Nd]    the same for the last seven days; --project <name>, --no-git
 Remember
   brain propose '<bullet>'   add a fact for a person to review
+  brain settle               a Claude Code Stop hook: once per session that changed files and
+                             proposed nothing, ask the agent what it settled
   brain lessons              where a person corrected an agent, and commands that failed then
                              worked, from the transcripts; --since Nd, --propose queues each
   brain inbox                what is unreviewed; approve <n> [--to LEARNINGS], drop <n>
@@ -315,6 +327,7 @@ Set up
   brain install [<vault>]    bind this machine to a vault; --dry-run shows the plan
   brain uninstall            undo those bindings; the vault is untouched
   brain locate [--tool]      the vault's path; --tool, this CLI's checkout
+  brain hooks [on|off]       the Claude Code hooks install registers: pack, prime, settle
   brain update               replace this binary with the latest signed release
   brain version              this build
 

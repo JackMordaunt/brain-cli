@@ -93,21 +93,20 @@ cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
 		path.write(cache, strings.concatenate({stamp, body}))
 	}
 	_ = cached
-	n := 0
+	// The served handles are logged with the query, so a prime in the same
+	// session does not repeat the pack.
+	served := make([dynamic]Hit)
 	for line in strings.split_lines(body) {
 		if strings.contains(line, ".md:") && !strings.has_prefix(line, "handoff:") {
-			n += 1
+			h := Hit{file = line[:strings.index(line, ":")]}
+			if handle, found := between(line, "**", "**"); found {
+				h.handle = handle
+			}
+			append(&served, h)
 		}
 	}
-	sqlite3.exec_args(
-		db,
-		"insert into queries(ts,q,hits,caller,session,bytes) values(datetime('now'),?,?,?,?,?)",
-		strings.concatenate({"pack ", project}),
-		i64(n),
-		caller_id(cli),
-		session_id(cli),
-		i64(len(body)),
-	)
+	n := len(served)
+	log_query(db, strings.concatenate({"pack ", project}), served[:], caller_id(cli), session_id(cli), len(body))
 	if n == 0 {
 		errf(cli, "no bullets for: %s\n", project)
 		return 1

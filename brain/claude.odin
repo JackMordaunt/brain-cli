@@ -1,114 +1,149 @@
 package brain
 
 import "core:encoding/json"
+import "core:os"
 import "core:strings"
 
 import "jm:path"
 
-// Claude Code runs a SessionStart hook when a session starts, is cleared or
-// is compacted, and adds what the hook prints on exit 0 to the session's
-// context (code.claude.com/docs/en/hooks, "SessionStart"). The installer
-// registers `brain pack` as one, so every session in a repository
-// opens with what the vault knows about it. The hook is written into
-// ~/.claude/settings.json beside whatever is already there; it is recognised
-// by its command, so installing twice adds nothing and uninstall removes
-// only it.
+// Claude Code runs hooks at points in a session and adds what a command
+// hook prints on exit 0 to the session's context
+// (code.claude.com/docs/en/hooks). The installer registers three:
+//
+//	SessionStart      brain pack    what the vault knows about this repository
+//	UserPromptSubmit  brain prime   what it knows about this prompt
+//	Stop              brain settle  once per session, ask for what was settled
+//
+// Each is written into ~/.claude/settings.json beside whatever is already
+// there and recognised by its command, so installing twice adds nothing,
+// uninstall removes only them, and `brain hooks off` turns them off
+// without touching anyone else's.
 
-HOOK_MATCHER :: "startup|clear|compact"
 HOOK_TIMEOUT :: 10
+
+// Hook is one registration: the event, its matcher where the event takes
+// one, the subcommand, and the phrase its command line is recognised by.
+Hook :: struct {
+	event, matcher, sub, mark: string,
+}
+
+HOOKS_CLAUDE :: [3]Hook {
+	{event = "SessionStart", matcher = "startup|clear|compact", sub = "pack", mark = " pack 2>/dev/null"},
+	{event = "UserPromptSubmit", sub = "prime", mark = " prime 2>/dev/null"},
+	{event = "Stop", sub = "settle", mark = " settle 2>/dev/null"},
+}
 
 claude_settings :: proc(cli: ^Cli) -> string {
 	return path.join(cli.home, ".claude", "settings.json")
 }
 
-// hook_command is the shell line the hook runs: a miss prints nothing and
+// hook_command is the shell line a hook runs: a miss prints nothing and
 // the session goes on, so a repository the vault knows nothing about costs
 // no error.
-hook_command :: proc(exe: string) -> string {
-	return strings.concatenate({exe, " pack 2>/dev/null || true"})
+hook_command :: proc(exe: string, sub := "pack") -> string {
+	return strings.concatenate({exe, " ", sub, " 2>/dev/null || true"})
 }
 
-// hook_apply adds the SessionStart hook to Claude Code's user settings,
-// creating the file when there is none. A file that does not parse is left
-// alone and named, since a bad write there would take every hook with it.
+// hook_apply adds the hooks to Claude Code's user settings, creating the
+// file when there is none. A file that does not parse is left alone and
+// named, since a bad write there would take every hook with it.
 hook_apply :: proc(cli: ^Cli, exe: string) {
 	file := claude_settings(cli)
 	root, ok := settings_load(cli, file)
 	if !ok {
 		return
 	}
-	if hook_present(root) {
-		say(cli, "%s: brain pack SessionStart hook present", file)
-		return
+	changed := false
+	hooks_claude := HOOKS_CLAUDE
+	for h in hooks_claude {
+		if hook_present(root, h) {
+			say(cli, "%s: brain %s %s hook present", file, h.sub, h.event)
+			continue
+		}
+		hooks, has_hooks := root["hooks"].(json.Object)
+		if !has_hooks {
+			hooks = make(json.Object)
+		}
+		entries, has_entries := hooks[h.event].(json.Array)
+		if !has_entries {
+			entries = make(json.Array)
+		}
+		cmd := make(json.Object)
+		cmd["type"] = json.String("command")
+		cmd["command"] = json.String(hook_command(exe, h.sub))
+		cmd["timeout"] = json.Integer(HOOK_TIMEOUT)
+		inner := make(json.Array)
+		append(&inner, json.Value(cmd))
+		entry := make(json.Object)
+		if h.matcher != "" {
+			entry["matcher"] = json.String(h.matcher)
+		}
+		entry["hooks"] = json.Value(inner)
+		append(&entries, json.Value(entry))
+		hooks[h.event] = json.Value(entries)
+		root["hooks"] = json.Value(hooks)
+		say(cli, "%s: brain %s %s hook added", file, h.sub, h.event)
+		changed = true
 	}
-	hooks, has_hooks := root["hooks"].(json.Object)
-	if !has_hooks {
-		hooks = make(json.Object)
+	if changed {
+		settings_save(cli, file, root)
 	}
-	starts, has_starts := hooks["SessionStart"].(json.Array)
-	if !has_starts {
-		starts = make(json.Array)
-	}
-	cmd := make(json.Object)
-	cmd["type"] = json.String("command")
-	cmd["command"] = json.String(hook_command(exe))
-	cmd["timeout"] = json.Integer(HOOK_TIMEOUT)
-	inner := make(json.Array)
-	append(&inner, json.Value(cmd))
-	entry := make(json.Object)
-	entry["matcher"] = json.String(HOOK_MATCHER)
-	entry["hooks"] = json.Value(inner)
-	append(&starts, json.Value(entry))
-	hooks["SessionStart"] = json.Value(starts)
-	root["hooks"] = json.Value(hooks)
-	say(cli, "%s: brain pack SessionStart hook added", file)
-	settings_save(cli, file, root)
 }
 
-// hook_remove takes the hook out again, and only it.
+// hook_remove takes the hooks out again, and only them.
 hook_remove :: proc(cli: ^Cli) {
 	file := claude_settings(cli)
 	if !path.exists(file) {
 		return
 	}
 	root, ok := settings_load(cli, file)
-	if !ok || !hook_present(root) {
+	if !ok {
 		return
 	}
-	hooks := root["hooks"].(json.Object)
-	starts := hooks["SessionStart"].(json.Array)
-	kept := make(json.Array)
-	for e in starts {
-		if !entry_is_ours(e) {
-			append(&kept, e)
+	changed := false
+	hooks_claude := HOOKS_CLAUDE
+	for h in hooks_claude {
+		if !hook_present(root, h) {
+			continue
 		}
+		hooks := root["hooks"].(json.Object)
+		entries := hooks[h.event].(json.Array)
+		kept := make(json.Array)
+		for e in entries {
+			if !entry_is_ours(e, h) {
+				append(&kept, e)
+			}
+		}
+		hooks[h.event] = json.Value(kept)
+		say(cli, "%s: brain %s %s hook removed", file, h.sub, h.event)
+		changed = true
 	}
-	hooks["SessionStart"] = json.Value(kept)
-	say(cli, "%s: brain pack SessionStart hook removed", file)
-	settings_save(cli, file, root)
+	if changed {
+		settings_save(cli, file, root)
+	}
 }
 
-// hook_present reports whether any SessionStart entry is the pack hook.
-hook_present :: proc(root: json.Object) -> bool {
+// hook_present reports whether the event has an entry that is this hook.
+hook_present :: proc(root: json.Object, h: Hook) -> bool {
 	hooks, ok := root["hooks"].(json.Object)
 	if !ok {
 		return false
 	}
-	starts, has := hooks["SessionStart"].(json.Array)
+	entries, has := hooks[h.event].(json.Array)
 	if !has {
 		return false
 	}
-	for e in starts {
-		if entry_is_ours(e) {
+	for e in entries {
+		if entry_is_ours(e, h) {
 			return true
 		}
 	}
 	return false
 }
 
-// entry_is_ours matches a SessionStart entry whose every command is a
-// brain pack, which is only the one the installer wrote.
-entry_is_ours :: proc(e: json.Value) -> bool {
+// entry_is_ours matches an entry whose every command is this hook's,
+// which is only the one the installer wrote.
+entry_is_ours :: proc(e: json.Value, h: Hook) -> bool {
 	entry, ok := e.(json.Object)
 	if !ok {
 		return false
@@ -117,17 +152,61 @@ entry_is_ours :: proc(e: json.Value) -> bool {
 	if !has || len(inner) == 0 {
 		return false
 	}
-	for h in inner {
-		cmd, is_obj := h.(json.Object)
+	for c in inner {
+		cmd, is_obj := c.(json.Object)
 		if !is_obj {
 			return false
 		}
-		c, is_str := cmd["command"].(json.String)
-		if !is_str || !strings.contains(string(c), " pack 2>/dev/null") {
+		s, is_str := cmd["command"].(json.String)
+		if !is_str || !strings.contains(string(s), h.mark) {
 			return false
 		}
 	}
 	return true
+}
+
+// cmd_hooks shows which hooks are registered, and turns them all on or
+// off. On needs this binary's own path, the way install writes it.
+cmd_hooks :: proc(cli: ^Cli, args: []string) -> int {
+	if len(args) > 1 || (len(args) == 1 && args[0] != "on" && args[0] != "off") {
+		return fail(cli, "usage: brain hooks [on|off]")
+	}
+	if len(args) == 1 {
+		if args[0] == "off" {
+			hook_remove(cli)
+		} else {
+			exe := getenv(cli, "BRAIN_EXE")
+			if exe == "" {
+				found, err := os.get_executable_path(context.allocator)
+				if err != nil {
+					return fail(cli, "cannot find this binary's own path")
+				}
+				exe = found
+			}
+			hook_apply(cli, posix_path(exe))
+		}
+	}
+	file := claude_settings(cli)
+	root, ok := settings_load(cli, file)
+	if !ok {
+		return 1
+	}
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		hooks_claude := HOOKS_CLAUDE
+		for h in hooks_claude {
+			jw_field_bool(&w, h.sub, hook_present(root, h))
+		}
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+		return 0
+	}
+	hooks_claude := HOOKS_CLAUDE
+	for h in hooks_claude {
+		outf(cli, "%-18s brain %-7s %s\n", h.event, h.sub, hook_present(root, h) ? "on" : "off")
+	}
+	return 0
 }
 
 // settings_load parses the settings file, or returns an empty object when

@@ -10,6 +10,7 @@
 #   REPEATS=3 MODELS="haiku sonnet opus fable" CONDITIONS="plain brain" tools/proof/run.sh
 #   CONDITIONS="brain brain-notes brain-source brain-both" tools/proof/run.sh   # find's knobs
 #   CONDITIONS="brain-open" tools/proof/run.sh   # brain, and the agent may open a note find names
+#   CONDITIONS="brain-auto" tools/proof/run.sh   # no instructions at all; the hooks prime each prompt
 #
 # Needs: claude (logged in), python3, a built build/release/brain, and a
 # vault (VAULT=<path>, else `brain locate`). Writes build/proof/<stamp>/:
@@ -30,16 +31,20 @@ mkdir -p "$out/raw"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work/home/.claude" "$work/bin" "$work/state"
+mkdir -p "$work/home/.claude" "$work/home-auto/.claude" "$work/bin" "$work/state"
 cp "$HOME/.claude/.credentials.json" "$work/home/.claude/"
+cp "$HOME/.claude/.credentials.json" "$work/home-auto/.claude/"
 # The vault, without its history, where every condition that has notes reads it.
 mkdir -p "$work/vault"
 (cd "$vault" && find . -name '*.md' -not -path './.git/*' -print0 | cpio -0 -pdm --quiet "$work/vault")
 cp "$vault/AI/synonyms.tsv" "$work/vault/AI/" 2>/dev/null || true
 ln -s "$brain_bin" "$work/bin/brain"
 BRAIN_VAULT="$work/vault" BRAIN_STATE="$work/state" "$brain_bin" reindex >/dev/null
+# brain-auto's home carries the three hooks install registers and nothing
+# else: the pack at session start, prime on every prompt, settle on stop.
+HOME="$work/home-auto" BRAIN_EXE="$work/bin/brain" BRAIN_VAULT="$work/vault" BRAIN_STATE="$work/state" "$brain_bin" hooks on >/dev/null
 
-mkdir -p "$work/vanilla" "$work/plain" "$work/brain"
+mkdir -p "$work/vanilla" "$work/plain" "$work/brain" "$work/brain-auto"
 cat > "$work/vanilla/CLAUDE.md" <<'MD'
 This is an empty scratch directory with no notes. Answer the question from what you know; if you do not know, say so in one sentence.
 MD
@@ -48,6 +53,11 @@ Your notes live at $work/vault. AI/MEMORY.md, AI/LEARNINGS.md and AI/TUNINGS.md 
 MD
 cat > "$work/brain/CLAUDE.md" <<'MD'
 The Brain is this machine's shared agent memory. `brain locate` prints its path, `brain find <terms>` searches it, and `brain recall <terms>` searches what was said in past agent conversations. Ask brain before answering, and prefer what it says to what you assume. Do not read the vault's files directly.
+MD
+# brain-auto: no instruction names brain; what the hooks add is the whole
+# difference from vanilla.
+cat > "$work/brain-auto/CLAUDE.md" <<'MD'
+This is a scratch directory with no notes of its own. Answer the question; if you do not know, say so in one sentence.
 MD
 # brain-open: the block `brain install` writes, which forbids nothing; the
 # agent may open a note that find points at.
@@ -71,14 +81,16 @@ for r in $(seq 1 "$repeats"); do
       # clause, brain-both does both; plain brain is the shipped behaviour.
       notes=always
       with_source=""
+      home="$work/home"
       case "$c" in
         brain) path="$work/bin:$path" ;;
+        brain-auto) path="$work/bin:$path"; home="$work/home-auto" ;;
         brain-open) path="$work/bin:$path" ;;
         brain-notes) dir=brain; path="$work/bin:$path"; notes=short ;;
         brain-source) dir=brain; path="$work/bin:$path"; with_source=source ;;
         brain-both) dir=brain; path="$work/bin:$path"; notes=short; with_source=source ;;
       esac
-      (cd "$work/$dir" && env -i HOME="$work/home" PATH="$path" TERM=dumb LANG=C.UTF-8 \
+      (cd "$work/$dir" && env -i HOME="$home" PATH="$path" TERM=dumb LANG=C.UTF-8 \
           BRAIN_VAULT="$work/vault" BRAIN_STATE="$work/state" BRAIN_NO_UPDATE=1 \
           BRAIN_NOTES="$notes" BRAIN_TERSE="$with_source" \
           claude -p "$question" --output-format json --model "$model" --max-turns 12 \
