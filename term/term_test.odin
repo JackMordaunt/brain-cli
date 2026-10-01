@@ -40,14 +40,17 @@ an_agent_in_a_terminal_is_plain :: proc(t: ^testing.T) {
 no_color_and_dumb_are_plain :: proc(t: ^testing.T) {
 	testing.expect_value(t, style_of(true, {"TERM" = "xterm", "NO_COLOR" = "1"}), Style{})
 	testing.expect_value(t, style_of(true, {"TERM" = "dumb"}), Style{})
-	// With nothing in the environment, Unix has no terminal to speak of;
-	// Windows asks the console itself, so the answer is whatever this
-	// console took (release run 36921260165 saw Eight_Bit on the runner).
+	// With nothing in the environment, Unix has no terminal to speak of.
+	// On Windows detect also reads terminal.color_depth, the console's own
+	// answer, which the GitHub runner reported as Eight_Bit (release run
+	// 36921260165), so there the case is the console's to decide.
 	when ODIN_OS == .Windows {
 		testing.expect_value(t, style_of(true, {}), Style{depth = terminal.color_depth})
 	} else {
 		testing.expect_value(t, style_of(true, {}), Style{})
 	}
+	// And a terminal that says so is not plain, whatever the platform.
+	testing.expect(t, styled(style_of(true, {"TERM" = "xterm-256color"})), "a 256-colour terminal is styled")
 }
 
 @(test)
