@@ -44,18 +44,20 @@ A release binary keeps itself current. `brain update` fetches the latest
 release, verifies the Ed25519 signature on its checksum file with the key
 compiled into the binary, checks the download against that file, keeps the
 old binary as `brain.old`, swaps the new one in and runs it. The download
-is a patch when the release has one for this very build: the workflow
-publishes `<asset>.<hash16>.patch` for each asset from each of the last
-`PATCH_FROM` releases, named by the old file's SHA-256, so a binary finds
-its own by hashing itself. The patch is jm:selfupdate's format
-(`jm/selfupdate/patch.odin`: copies found by a rolling hash over the old
-file, literals for the rest, wrapped in zlib), its hash is in the signed
-sums like any asset, and the result must match the asset's published
-hash before it is written, so a patch can never yield anything but the
-released file; anything that fails falls back to the whole asset. On two
-releases a day apart the patch was a tenth of the binary. The workflow
-builds `jm/tools/patch` on the Linux runner and the publish job runs it
-against the earlier releases it downloads with `gh`. At a terminal,
+is the cheapest route the signed sums list: a patch from this very build,
+else the asset compressed with zstd, else the asset itself. The workflow
+runs jm's `mkpatch` in the publish job, which writes `<asset>.zst` beside
+each asset and `<asset>.<old sha256>.patch` for each of the last
+`PATCH_FROM` releases, named by the old file's full hash so a binary finds
+its own by hashing itself, and skips a patch that would not beat the
+compressed asset. The old builds are the published files, downloaded with
+`gh`, since a rebuild is not the same bytes. On the client (jm:selfupdate)
+each file is checked against its published hash before zstd reads a byte,
+the result against the asset's, and a route that fails falls through to
+the next, named in the message. Between dev-2026-09 and dev-2026-09-2 the
+patch was 136 KB against a 2.39 MB binary and a 1.0 MB compressed asset.
+jm:zstd links a vendored zstd amalgamation, built like the SQLite archive
+by `just deps` here and in each release job. At a terminal,
 `brain` checks for a release once a day, with a 3 s timeout, and after
 the command's output says on stderr that one is waiting, on every run
 until `brain update`; the finding is kept in the state directory. It never

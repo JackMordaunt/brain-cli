@@ -1,8 +1,8 @@
 # Builds the static binary for each platform on every push and, on a version
 # tag, publishes them with a sha256sums.txt, which is what install.sh and
-# install.ps1 download, and a binary patch to each asset from each of the
-# last PATCH_FROM releases, which is what `brain update` downloads when it
-# can (jm/selfupdate/patch.odin).
+# install.ps1 download, and beside each asset its zstd-compressed form and
+# a patch to it from each of the last PATCH_FROM releases, which is what
+# `brain update` downloads when it can (jm/selfupdate, jm/tools/mkpatch).
 #
 # Versions are calendar tags the way Odin's are: dev-YYYY-MM, with a letter
 # for a second release in a month (dev-2026-09a). dev-YYYY-MM-rcN is a
@@ -80,17 +80,18 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libcurl4-openssl-dev
-      # jm:sqlite3 links an archive built from the vendored amalgamation with
-      # jm's own compile options; its recipe builds it on Unix.
-      - name: sqlite archive
+      # jm:sqlite3 and jm:zstd link archives built from vendored
+      # amalgamations with jm's own compile options; its recipes build them
+      # on Unix.
+      - name: sqlite and zstd archives
         if: runner.os != 'Windows'
         shell: bash
-        run: cd jm && CC="${{ matrix.cc || 'cc' }}" just sqlite
+        run: cd jm && CC="${{ matrix.cc || 'cc' }}" just sqlite zstd
       # jm's Windows recipe is written for PowerShell; the same defines are
       # read out of its justfile text and given to cl directly. Not
       # `just --evaluate`: on Windows, just 1.4x refuses the whole file over
       # a recipe whose dependency is unix-only.
-      - name: sqlite archive (windows)
+      - name: sqlite and zstd archives (windows)
         if: runner.os == 'Windows'
         shell: bash
         # Git Bash rewrites a /flag into C:/Program Files/Git/flag before
@@ -100,9 +101,11 @@ jobs:
         run: |
           defines=$(sed -n '/^sqlite_defines :=/,/[^\\]$/p' jm/justfile | grep -o '"[^"]*"' | tr -d '"' | tr -d '\n')
           echo "defines: $defines"
-          cd jm/sqlite3 && mkdir -p lib
-          cl -nologo -O2 -c vendor/sqlite3.c -Folib/sqlite3.obj $defines
-          lib -nologo -OUT:lib/sqlite3.lib lib/sqlite3.obj
+          cd jm && mkdir -p sqlite3/lib zstd/lib
+          cl -nologo -O2 -c sqlite3/vendor/sqlite3.c -Fosqlite3/lib/sqlite3.obj $defines
+          lib -nologo -OUT:sqlite3/lib/sqlite3.lib sqlite3/lib/sqlite3.obj
+          cl -nologo -O2 -c zstd/vendor/zstd.c -Fozstd/lib/zstd.obj
+          lib -nologo -OUT:zstd/lib/zstd.lib zstd/lib/zstd.obj
 
       # A tag build carries its version; any other build is "dev" and will
       # not update itself.
@@ -142,17 +145,17 @@ jobs:
           name: ${{ matrix.asset }}
           path: build/release/${{ matrix.asset }}
           if-no-files-found: error
-      # The patch tool from jm:selfupdate, built once for the publish
-      # runner, which has no Odin of its own.
-      - name: patch tool
+      # jm's mkpatch, built once for the publish runner, which has no Odin
+      # of its own; it links the zstd archive built above.
+      - name: mkpatch
         if: matrix.target == 'linux_amd64'
         shell: bash
-        run: odin build jm/tools/patch -o:speed -vet -strict-style -collection:jm="$PWD/jm" -out:build/release/patchtool
+        run: odin build jm/tools/mkpatch -o:speed -vet -strict-style -collection:jm="$PWD/jm" -out:build/release/mkpatch
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: matrix.target == 'linux_amd64'
         with:
-          name: patchtool
-          path: build/release/patchtool
+          name: mkpatch
+          path: build/release/mkpatch
           if-no-files-found: error
 
   publish:
@@ -166,34 +169,31 @@ jobs:
         with:
           path: assets
           merge-multiple: true
-      # A patch to each asset from the same asset in each of the last
-      # PATCH_FROM releases, named <asset>.<old sha256, 16 hex>.patch so a
-      # binary finds the one for itself by its own hash, wrapped in zlib,
-      # and checked to rebuild the asset exactly before it ships. A release
-      # with no earlier one, or an asset an old release lacked, ships none.
-      - name: patches
+      # Beside each asset, mkpatch writes its zstd-compressed form and a
+      # patch to it from the same asset in each of the last PATCH_FROM
+      # releases, named <asset>.<old sha256>.patch so a binary finds the
+      # one for itself by its own hash; it skips a patch that would not
+      # beat the compressed asset. The old builds are the published files,
+      # since a rebuild is not the same bytes. A release with no earlier
+      # one ships the compressed assets alone.
+      - name: compressed assets and patches
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          mv assets/patchtool patchtool && chmod +x patchtool
+          mv assets/mkpatch mkpatch && chmod +x mkpatch
           mapfile -t tags < <(gh release list -R "$GITHUB_REPOSITORY" --limit 50 --json tagName --jq '.[].tagName' | grep -vx "$GITHUB_REF_NAME" | head -n "$PATCH_FROM")
           echo "patches from: ${tags[*]:-none}"
           for tag in "${tags[@]}"; do
             mkdir -p "old/$tag"
             gh release download "$tag" -R "$GITHUB_REPOSITORY" -D "old/$tag" -p 'brain-*' || true
-            rm -f old/"$tag"/*.patch
-            for new in assets/brain-*; do
-              name=$(basename "$new")
-              old="old/$tag/$name"
-              [ -f "$old" ] || continue
-              hash=$(sha256sum "$old" | cut -c1-16)
-              out="assets/$name.$hash.patch"
-              ./patchtool make "$old" "$new" raw.patch
-              python3 -c 'import sys,zlib; sys.stdout.buffer.write(b"JMPZ" + zlib.compress(open(sys.argv[1], "rb").read(), 9))' raw.patch > "$out"
-              ./patchtool check "$old" "$out" "$new"
-              printf '%s -> %s: %s bytes of %s\n' "$tag" "$name" "$(stat -c %s "$out")" "$(stat -c %s "$new")"
-            done
+            rm -f old/"$tag"/*.patch old/"$tag"/*.zst
+          done
+          for new in assets/brain-*; do
+            name=$(basename "$new")
+            olds=()
+            for tag in "${tags[@]}"; do [ -f "old/$tag/$name" ] && olds+=(-old "old/$tag/$name"); done
+            ./mkpatch -new "$new" -out assets "${olds[@]}"
           done
       - run: cd assets && sha256sum brain-* > sha256sums.txt && cat sha256sums.txt
       # The checksum file is signed with the key whose public half the

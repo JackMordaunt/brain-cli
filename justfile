@@ -40,13 +40,15 @@ targets := "linux_amd64 darwin_arm64 windows_amd64"
 default:
     @just --list --unsorted
 
-# The jm submodule, when JM does not name another checkout, and its SQLite
-# archive, which jm:sqlite3 links.
+# The jm submodule, when JM does not name another checkout, and the SQLite
+# and zstd archives jm:sqlite3 and jm:zstd link (zstd decodes a patched
+# update; see jm/selfupdate).
 deps:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{jm}}" = "{{root}}/jm" ] && [ ! -e jm/.git ]; then git submodule update --init jm; fi
     if ! ls "{{jm}}"/sqlite3/lib/sqlite3.* >/dev/null 2>&1; then (cd "{{jm}}" && just sqlite); fi
+    if ! ls "{{jm}}"/zstd/lib/zstd.* >/dev/null 2>&1; then (cd "{{jm}}" && just zstd); fi
 
 # Debug binary -> build/debug/brain
 build: deps
