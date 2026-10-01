@@ -12,12 +12,12 @@ claims_are_read_out_of_a_fact :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
 	f := fixture(t)
 	defer fixture_destroy(f)
-	claims := extract_claims(f.cli, "AI/MEMORY.md", 1, "h", "lives at /opt/x (see `~/notes/a.md`), run `brain doctor`; commit 7d6fbd6 at https://x.y/z/abc1234; the notes in brainfold/2026-09-28-roadmap.md; version 1.2.3; cl takes /nologo, the route /code/brain-cli/ answers 301, //review:ignore marks a line, jm/YYYY-*-friction.md names them")
+	claims := extract_claims(f.cli, "AI/MEMORY.md", 1, "h", "lives at /opt/x (see `~/notes/a.md`), run `brain doctor`; commit 7d6fbd6 at https://x.y/z/abc1234; the notes in brainfold/2026-09-28-roadmap.md; version 1.2.3; cl takes /nologo, the route /code/brain-cli/ answers 301, //two-slash-prefix marks a line, jm/YYYY-*-friction.md names them; on Windows C:\\Tools\\brain.exe and on a Mac /private/var/x")
 	kinds := make([dynamic]string)
 	for c in claims {
 		append(&kinds, strings.concatenate({c.kind, "=", c.text}))
 	}
-	testing.expect_value(t, strings.join(kinds[:], " "), "path=/opt/x path=~/notes/a.md command=brain doctor sha=7d6fbd6 vault-file=brainfold/2026-09-28-roadmap.md")
+	testing.expect_value(t, strings.join(kinds[:], " "), "path=/opt/x path=~/notes/a.md command=brain doctor sha=7d6fbd6 vault-file=brainfold/2026-09-28-roadmap.md path=C:\\Tools\\brain.exe path=/private/var/x")
 	testing.expect(t, !is_sha("decade") && !is_sha("1234567") && is_sha("7d6fbd6"), "sha shape")
 }
 
@@ -27,13 +27,16 @@ verify_tests_claims_and_dates_what_passed :: proc(t: ^testing.T) {
 	f := fixture(t)
 	defer fixture_destroy(f)
 	mem := path.join(f.vault, "AI", "MEMORY.md")
+	// A path under the home directory keeps the claim independent of where
+	// the fixture itself lands.
+	testing.expect_value(t, path.mkdirs(path.join(f.home, "notes")), nil)
 	testing.expect_value(
 		t,
 		path.append_file(
 			mem,
 			strings.concatenate(
 				{
-					"- **vault path** (aliases: where) — the notes live at ", f.vault, " and AI/MEMORY.md is the index; `brain doctor` reads it — fixture — 2026-01-01\n",
+					"- **vault path** (aliases: where) — the notes live at ~/notes and AI/MEMORY.md is the index; `brain doctor` reads it — fixture — 2026-01-01\n",
 					"- **gone path** (aliases: missing) — the old build sat at /tmp/nonexistent-brain-test/path — fixture — 2026-01-01\n",
 					"- **bad command** (aliases: typo) — run `brain reindexx` after editing — fixture — 2026-01-01\n",
 				},

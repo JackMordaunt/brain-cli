@@ -102,8 +102,9 @@ settle_asks_once_when_work_went_unproposed :: proc(t: ^testing.T) {
 	f := fixture(t)
 	defer fixture_destroy(f)
 	file := path.join(f.root, "t.jsonl")
+	// The path is a JSON string, so a Windows path's backslashes are escaped.
 	hook := proc(file, session: string, active: bool) -> string {
-		return strings.concatenate({`{"session_id":"`, session, `","hook_event_name":"Stop","stop_hook_active":`, active ? "true" : "false", `,"transcript_path":"`, file, `"}`})
+		return strings.concatenate({`{"session_id":"`, session, `","hook_event_name":"Stop","stop_hook_active":`, active ? "true" : "false", `,"transcript_path":"`, json_escape(file), `"}`})
 	}
 	f.cli.has_stdin = true
 

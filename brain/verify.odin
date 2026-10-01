@@ -26,10 +26,11 @@ GIT_SHA_MIN :: 7 // hex characters before a word is a commit
 SHA_REPOS :: 40 // repositories looked in for a commit no bullet places
 
 // An absolute path claims to exist only under a root a machine has; a
-// lone /flag or /url/path is not one.
+// lone /flag or /url/path is not one. On Windows a path with a drive
+// letter counts; UNC and drive-relative paths are left alone.
 PATH_ROOTS :: [?]string {
-	"home", "usr", "etc", "opt", "tmp", "var", "mnt", "srv", "root", "run", "nix", "bin", "sbin", "lib",
-	"Users", "Applications", "Library", "Volumes", "c", "C:", "d", "D:",
+	"home", "usr", "etc", "opt", "tmp", "var", "private", "mnt", "srv", "root", "run", "nix", "bin",
+	"sbin", "lib", "Users", "Applications", "Library", "Volumes",
 }
 
 Claim :: struct {
@@ -219,6 +220,9 @@ is_path_claim :: proc(tok: string) -> bool {
 		return false
 	}
 	if strings.has_prefix(tok, "~/") {
+		return true
+	}
+	if len(tok) > 3 && is_drive_letter(tok[0]) && tok[1] == ':' && (tok[2] == '/' || tok[2] == '\\') {
 		return true
 	}
 	if !strings.has_prefix(tok, "/") {
