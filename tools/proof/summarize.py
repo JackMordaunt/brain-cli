@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """runs.jsonl -> summary.md: per condition, then per question."""
-import json, statistics, sys
+import json, os, statistics, sys
 from collections import defaultdict
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from common import mean
 runs = []
 for f in sys.argv[1:]:
     runs += [json.loads(l) for l in open(f) if l.strip()]
@@ -17,7 +20,6 @@ for r in runs:
 by = defaultdict(list)
 for r in runs:
     by[r["model"], r["condition"]].append(r)
-def mean(xs): return statistics.mean(xs) if xs else 0
 def med(xs): return statistics.median(xs) if xs else 0
 print("# Proof: what a lookup costs an agent\n")
 print(f"{len(runs)} runs, {len({r['question'] for r in runs})} questions, {max((r['repeat'] for r in runs), default=0)} repeat(s), models: {', '.join(models)}. Tokens are every token the model processed across the run's turns: input, cache reads, cache writes, output.\n")

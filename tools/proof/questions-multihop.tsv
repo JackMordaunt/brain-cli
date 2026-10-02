@@ -1,0 +1,4 @@
+id	question	expected	kind
+jm-url-why	What exact URL should the jm submodule point at, and why not the GitHub one?	(?=.*mordaunt\.dev/code/jm)(?=.*mirror)	multihop
+windows-ci-two	A justfile with bash-shebang recipes drives cl on a Windows GitHub runner in a bash step. Name the two separate things that break and the fix for each.	(?=.*(git bash|scoop))(?=.*MSYS_NO_PATHCONV)	multihop
+preview-watcher	I am writing a headless mpv preview that names its audio client, and a bash loop that reads busctl monitor. Which two pitfalls from past work apply, and what avoids each?	(?=.*(load-scripts=no|without (a )?space|no space|spaces?\b.*(avoid|remove|drop)|mpris))(?=.*stdbuf)	multihop

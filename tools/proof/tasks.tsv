@@ -1,0 +1,13 @@
+id	covered	prompt	check	repo
+hypr-whatsapp	yes	Create hypr.conf containing a Hyprland window rule that sends the WhatsApp web app (its window class is chrome-web.whatsapp.com) to workspace 5.	py:hypr_class	
+busctl-watch	yes	Write watch.sh, a bash script that runs `busctl --user monitor --json=short` and prints the sender of each Notify call as it arrives, line by line.	re:stdbuf	
+cl-step	yes	Write ci.yml with one GitHub Actions job on windows-latest whose bash step compiles main.c with MSVC cl using the /nologo and /O2 flags and links it.	re:MSYS_NO_PATHCONV	jm
+libgit2-log	yes	Write log.c: a C function using libgit2's revwalk that prints commit ids newest first from HEAD, the way a log view would.	re:GIT_SORT_TOPOLOGICAL	jm
+fzf-remote	yes	Write pick.sh: a bash picker built on fzf whose candidate rows are fetched from a remote search API as the user types, with the API doing the ranking.	re:--disabled	
+mpv-preview	yes	Write preview.sh that plays the URL given as $1 with mpv, no video, and names the audio client 'Ambience Preview' so it shows in the mixer.	py:mpv_name	
+jm-justfile	yes	Create a justfile for a new Odin application that depends on the jm collection, with build and test recipes, and a short README.md section explaining how jm is obtained.	re:mordaunt\.dev/code/jm|env\(\s*"JM"	jm
+readme-install	yes	Write INSTALL.md: the install section of brainfold's README for Linux, macOS and Windows.	re:mordaunt\.dev/code/brainfold/install\.sh	brainfold
+iso-parse	no	Write iso.py with parse_iso(s) returning a datetime for ISO 8601 date-times, including a trailing Z and numeric offsets, plus three asserts under if __name__ == '__main__' that exercise it.	run:python3 iso.py||^	
+fizz	no	Write fizz.sh that prints FizzBuzz for 1 through 15, one per line.	run:bash fizz.sh||^1\n2\nFizz\n4\nBuzz\nFizz\n7\n8\nFizz\nBuzz\n11\nFizz\n13\n14\nFizzBuzz\s*$	
+dedupe	no	Write dedupe.py that reads lines from stdin and prints each distinct line once, in first-seen order.	run:printf 'b\na\nb\nc\na\n' | python3 dedupe.py||^b\na\nc\s*$	
+join	no	Write join.sh, a POSIX sh script that prints its arguments joined by a comma and a space.	run:sh join.sh x y z||^x, y, z\s*$	

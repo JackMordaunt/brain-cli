@@ -1,0 +1,13 @@
+id	question	expected	kind
+canonical-remote	When I set up a new project's origin, which forge address should the clone URL point at, and what are the other two code hosts there for?	mordaunt\.dev.*mirror|mirror.*mordaunt\.dev	bullet
+jm-submodule	How does one of my Odin apps pull in the shared jm library, and how do I point a build at a local copy of it instead?	submodule.*\bJM\b|\bJM\b.*submodule	bullet
+just-shell	If a justfile recipe starts with a bash shebang, what has to be installed on a Windows box before it runs?	git bash|scoop	bullet
+libgit2-ties	Walking history newest-first in jm:git, two commits authored in the same second came out parent before child. What ordering flag fixes that?	TOPOLOGICAL	bullet
+fzf-with-nth	My fzf picker hides a column. Can I stuff keywords into the hidden column so typing them still matches, and if not, how do I make my own program do the filtering?	--disabled	bullet
+hyprland-class	A window rule for the WhatsApp web app silently does nothing, though hyprctl reports no config errors. What is wrong with matching the app id by its prefix?	whole class|\.\*|entire (class|string)	bullet
+mpv-mpris	Running mpv headless with a two-word audio client name, it freezes before fetching the stream. What is going on?	mpris|d-bus|dbus|g_bus_own_name	bullet
+install-one-liner	Give me the curl command that puts brainfold on a fresh Linux machine.	mordaunt\.dev/code/brainfold/install\.sh	bullet
+brainfold-voice	What tone should brainfold's interface text take, and why is it kept free of version-control jargon?	sync|outcome	bullet
+odin-allocation	In my Odin helper code, when am I allowed to allocate on the heap rather than use a buffer?	allocation-free|stack buffer|fixed buffer|dynamic|unbounded|outlives	bullet
+busctl-buffer	I pipe a D-Bus monitor into a shell loop and see no output until it exits. What is the fix?	stdbuf	bullet
+cl-git-bash	MSVC on a Windows CI runner under bash produces no object files and the linker fails with LNK1181. Why, and which variable stops it?	MSYS_NO_PATHCONV	bullet

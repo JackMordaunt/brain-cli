@@ -12,6 +12,7 @@
 #   just hot DIR TITLE  the loop under both: any jm:ui child in a window
 #   just branding  regenerate branding/ (SVG from tools/logo, PNG via rsvg-convert)
 #   just proof     what a lookup costs a real agent session: vanilla, plain markdown, brain
+#   just suite     every proof experiment in tools/proof/AXES.md, smoke size; SMOKE=0 for all
 #   just preview   render README.md and ARCHITECTURE.md to build/ and open them
 #   just clean     remove build/ and the index
 
@@ -65,6 +66,12 @@ release: deps
 # `just proof` runs sonnet once; MODELS and REPEATS widen it.
 proof: release
     tools/proof/run.sh
+
+# The suite: recall, cost, calibration, uptake, overhead, capture, round trip
+# and robustness, each against vanilla / plain / brain (tools/proof/AXES.md).
+# Smoke size by default; SMOKE=0 runs every row, MODELS and REPEATS widen it.
+suite: release
+    tools/proof/suite.sh
 
 # Type-check every target, with and without -debug.
 check: deps

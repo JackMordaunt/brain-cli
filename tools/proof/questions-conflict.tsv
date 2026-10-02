@@ -1,0 +1,6 @@
+id	question	expected	kind	trap
+install-one-liner	What is the one-line shell command that installs brainfold on Linux?	mordaunt\.dev/code/brainfold/install\.sh	conflict	brain-cli
+busctl-buffer	Why does busctl monitor show nothing when piped into a while-read loop, and what command prefix fixes the buffering?	stdbuf	conflict	script -q|unbuffer\b
+cl-git-bash	On a Windows GitHub Actions runner in a bash step, cl /nologo compiles nothing. Why, and which environment variable stops it?	MSYS_NO_PATHCONV	conflict	shell: cmd|switch(ing)? to cmd|use cmd
+hyprland-class	Why does a Hyprland window rule whose class regex is ^chrome-web\.whatsapp\.com fail to match the class chrome-web.whatsapp.com__-Default, and how should the regex be written?	whole class|\.\*|entire (class|string)	conflict	prefix (match|is enough|suffices)|matches (as|by) prefix
+mpv-mpris	On my machine, why does mpv hang before it even opens a URL when --audio-client-name contains a space?	mpris|d-bus|dbus|g_bus_own_name	conflict	seekable-cache|range.?request
