@@ -442,9 +442,12 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 	if !ok || ev.continuing {
 		return 0
 	}
-	// The vault is tended once a day, when an agent stops: no one has to
-	// remember to run it, and nothing is printed into the session.
+	// The vault is tended once a day, when an agent stops, and what changed
+	// here is written down and sent; neither prints into the session.
 	tend_daily(cli)
+	if cli.vault != "" {
+		vault_sync(cli, .Full)
+	}
 	session, transcript := ev.session, ev.transcript
 	if session == "" || transcript == "" || !os.is_file(transcript) {
 		return 0

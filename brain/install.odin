@@ -399,6 +399,11 @@ cmd_install :: proc(cli: ^Cli, args: []string) -> int {
 	claude_md := path.join(cli.home, ".claude", "CLAUDE.md")
 	block_apply(cli, claude_md, "claude", "<!--", "-->", CLAUDE_BLOCK)
 	hooks_apply(cli, posix_path(installed))
+	// BRAIN_CONNECT=<url> on a second machine: one install that ends with the
+	// first machine's vault.
+	if where_ := getenv(cli, "BRAIN_CONNECT"); where_ != "" {
+		sync_connect(cli, where_)
+	}
 	// An absolute import of the same file would load it a second time.
 	if text, ok := read_text(claude_md); ok {
 		dup := strings.concatenate({vault, "/AI/AGENTS.md"})

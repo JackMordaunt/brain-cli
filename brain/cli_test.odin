@@ -98,7 +98,7 @@ sync_indexes_the_fixture :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
 	f := fixture(t)
 	defer fixture_destroy(f)
-	o, e, code := exec(f.cli, "sync")
+	o, e, code := exec(f.cli, "reindex")
 	testing.expect_value(t, code, 0)
 	testing.expect_value(t, e, "")
 	testing.expect_value(t, o, "indexed 5 bullets, 0 links, 6 files\n")
@@ -147,7 +147,7 @@ find_expands_terms_from_the_vaults_synonyms :: proc(t: ^testing.T) {
 	// A removed file leaves nothing to be newer than the index, so this
 	// resyncs by hand; an edited file re-indexes on its own.
 	testing.expect_value(t, os.remove(path.join(f.vault, SYNONYMS_FILE)), nil)
-	_, _, code = exec(f.cli, "sync")
+	_, _, code = exec(f.cli, "reindex")
 	testing.expect_value(t, code, 0)
 	_, _, code = exec(f.cli, "find", "fulltext")
 	testing.expect_value(t, code, 1)
@@ -181,7 +181,7 @@ log_survives_sync :: proc(t: ^testing.T) {
 	exec(f.cli, "find", "zzzznope")
 	before := count_int(t, f, "select count(*) from queries")
 	testing.expect_value(t, before, 2)
-	_, _, code := exec(f.cli, "sync")
+	_, _, code := exec(f.cli, "reindex")
 	testing.expect_value(t, code, 0)
 	testing.expect_value(t, count_int(t, f, "select count(*) from queries"), before)
 	testing.expect(t, count_int(t, f, "select count(*) from query_hits") >= 1, "hits carry over too")
@@ -463,7 +463,7 @@ pack_briefs_a_project_and_caches_it :: proc(t: ^testing.T) {
 	o2, _, _ := exec(f.cli, "pack", "fixture")
 	testing.expect_value(t, o2, planted)
 	testing.expect_value(t, path.append_file(path.join(f.vault, "AI", "MEMORY.md"), "- **fixture pack** (aliases: fixture) — a bullet added after the pack was cached — fixture — 2026-01-03\n"), nil)
-	_, _, code = exec(f.cli, "sync")
+	_, _, code = exec(f.cli, "reindex")
 	testing.expect_value(t, code, 0)
 	o3, _, _ := exec(f.cli, "pack", "fixture")
 	testing.expect(t, strings.contains(o3, "**fixture pack**"), "a sync invalidates the cache")

@@ -19,6 +19,11 @@ PACK_BUDGET :: 1500 // tokens
 PACK_LIMIT  :: 64 // bullets considered before the budget is filled
 
 cmd_pack :: proc(cli: ^Cli, args: []string) -> int {
+	// A session opens with what other machines wrote since: a receive, within
+	// the hook's time, that never fails the pack.
+	if cli.vault != "" {
+		vault_sync(cli, .Receive)
+	}
 	if err := ensure_db(cli); err != "" {
 		return fail(cli, err)
 	}

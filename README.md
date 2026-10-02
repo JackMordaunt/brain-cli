@@ -23,7 +23,9 @@ irm https://mordaunt.dev/code/brainfold/install.ps1 | iex
 ```
 
 One command puts `brain` on your machine, makes a vault if you have none, and
-connects Claude Code and pi. Already keep notes? `brain install ~/notes`.
+connects Claude Code and pi. Already keep notes? `brain install ~/notes`. A
+second machine joins the first with `BRAIN_CONNECT=<url>` in front of the
+install line.
 
 ## What you get
 
@@ -39,6 +41,17 @@ before it stops. You review a line, not a transcript.
 answers from the vault as often as one that reads every file, at a fifth of
 the tokens, and on plain facts at the cost of an agent with no memory at all.
 [The numbers.](docs/PROOF.md)
+
+**Every machine, one memory.** What changes here is written down when a
+session ends and sent; what another machine wrote arrives when the next one
+starts. On a second machine, one line connects it:
+
+```sh
+brain sync connect github            # a private repository of yours, made for you
+brain sync connect <url>             # or any place you already keep code
+```
+
+Turn it off for a machine with `brain sync off`.
 
 **Still just a folder of markdown.** Obsidian opens it. Any editor edits it.
 Nothing brain adds changes that, and the index rebuilds from the files any

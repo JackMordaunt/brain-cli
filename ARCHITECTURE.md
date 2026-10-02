@@ -132,6 +132,21 @@ an item and logs it in `AI/TENDED.md`; `drop` dismisses it for good;
 find. Why it exists is the 2026-10-02 proof: the vault's state was what
 separated the good runs from the bad.
 
+`brain sync` keeps every machine's vault the same vault (brain/sync.odin).
+It is on by default and runs at the hook moments: pack receives, settle
+writes down and sends, each within the hook's time and never failing it; a
+failed reach sets a ten-minute hold so a session start is never slowed twice.
+The write-down runs the vault's own gates (lint, secrets) before committing,
+so a vault without hooks still refuses a bad line, and commits unsigned
+(signing wants an agent a hook does not have) as `brain` when the machine has
+no name set. Receive is `pull --rebase --autostash`; a conflict aborts and
+is reported by file; a `.gitattributes` with `AI/*.md merge=union` makes
+appended facts merge line by line. `connect` adds or replaces `origin`
+(`github` makes a private repository with gh); a vault that is still the
+untouched starter adopts the connected one instead of merging two welcome
+pages. The surface never says git: up to date, sent, received, changes
+waiting, not connected, offline.
+
 ## The index
 
 Markdown is canonical. The SQLite index (FTS5, linked in) is disposable:

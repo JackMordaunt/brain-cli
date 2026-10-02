@@ -237,8 +237,10 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_day(cli, rest)
 	case "week":
 		return cmd_week(cli, rest)
-	case "reindex", "sync": // sync is the old name; installed hooks still say it
+	case "reindex":
 		return cmd_reindex(cli, rest)
+	case "sync":
+		return cmd_sync(cli, rest)
 	case "ledger":
 		return cmd_ledger(cli, rest)
 	case "log":
@@ -320,6 +322,9 @@ Share
   brain export <agent>...    give this repository's briefing to an agent: claude, agents (codex,
                              opencode, jules, junie, zed, warp), copilot, gemini, cursor, cline, kiro
   brain mcp                  the same tools over MCP on stdio, for agents without a shell
+  brain sync                 send what changed here, receive what other machines wrote;
+                             automatic at session start and stop; on|off for this machine,
+                             status, connect <url>|github
 Keep it healthy
   brain tend                 keep the vault true: date what verifies, add the aliases queries
                              use, and put the rest in the inbox as actions a person approves

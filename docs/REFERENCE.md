@@ -93,6 +93,35 @@ Set up
 
 Every command above the Set up line answers `--json` with one object.
 
+## Sync
+
+On by default. When a session starts, the machine receives what other
+machines wrote; when an agent stops, what changed here is written down and
+sent. Both happen inside the hooks' time budget and never fail a hook: a
+machine that is offline keeps its changes and sends them next time, and
+does not try again for ten minutes.
+
+```
+brain sync                      write down, receive, send; says what happened
+brain sync status               on or off, where it is connected, what is waiting
+brain sync connect <url>        where this vault meets other machines
+brain sync connect github       a private repository of yours, made with gh
+brain sync off | on             for this machine (also BRAIN_SYNC=off)
+```
+
+A fresh vault that connects to a place with a vault already in it adopts
+that vault. `BRAIN_CONNECT=<url>` at install time does the connect for you.
+What each pass can say: `up to date`, `sent N`, `received N`, `wrote down N
+changes`, `changes waiting: <why>` (the vault's lint or secrets check refused
+a line, which stays here until it is fixed), `not connected`, `offline`, or
+`both sides changed <file>` (both kept; open the file, keep what you want,
+run `brain sync`). The fact files merge line by line, so two machines that
+each added facts never conflict.
+
+Under the hood this is git: the vault is a repository, write-downs are
+commits (unsigned, by `brain`, with the machine's name when none is set),
+connect adds a remote, receive is a rebase pull and send a push.
+
 ## The hooks
 
 `brain install` registers three hooks in Claude Code (`~/.claude/settings.json`)
@@ -128,6 +157,8 @@ Recall is opt in, once per agent: `brain recall --enable claude`.
 | `BRAIN_PRIME_BUDGET` | tokens prime may give a prompt (1200) |
 | `BRAIN_REVIEW` | `after` or `before`, when proposals are reviewed |
 | `BRAIN_NO_TEND` | set to skip the daily sweep |
+| `BRAIN_SYNC` | `off` keeps the vault on this machine |
+| `BRAIN_CONNECT` | at `brain install`: where the vault meets other machines |
 | `BRAIN_CALLER` | name the caller in the log; agents are detected without it |
 | `BRAIN_COLOR` | `always`, `never` or `auto` |
 
