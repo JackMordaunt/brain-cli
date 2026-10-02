@@ -61,6 +61,7 @@ What a bare folder does not give an agent, brain layers on top:
 - **Memory of what was said.** `brain recall <terms>` searches your agents' own conversation logs, as ranked snippets. `brain howto <terms>` replays the shell commands that did a task last time; `brain day` and `brain week` say what was worked on, by repository.
 - **Lessons nobody wrote.** `brain lessons` finds where you corrected an agent, and the command that failed before the one that worked, and proposes each as a fact with the conversation it came from as its source.
 - **Facts that prove themselves.** `brain verify` tests what a bullet claims: the path exists, the file is in the vault, the commit is in a repository here. `brain doctor` names what failed, and which bullet was served just before you corrected the agent.
+- **A vault that tends itself.** Once a day, when an agent stops, `brain tend` sweeps: it adds the aliases people actually search by, and puts the rest in the inbox as actions you approve, a note marked superseded by the bullets it retells, a bullet dropped because nothing it names exists any more, two bullets with one name merged, verified bullets dated. Nothing that changes meaning happens without you.
 - **Memory that happens.** Three hooks, in Claude Code and in pi: the briefing at session start, what the vault knows about each prompt as you type it, and once per session that changed files, the ask to write down what it settled. The agent never has to be told to look. The commands know no harness; one small adapter per program registers them.
 - **A cache, not a database.** The SQLite index is disposable. Delete it, `brain reindex` rebuilds it from the markdown.
 - **One binary that keeps itself current.** `brain update` fetches a signed release by the cheapest route it lists: a patch from the build you have, else the compressed asset, else the whole thing. It never updates unasked.
@@ -134,6 +135,7 @@ brain lessons             corrections and retries from the transcripts; --propos
 brain prime [<prompt>]    what the vault knows about one prompt; a UserPromptSubmit hook
 brain settle              a Stop hook: once per session that changed files, ask what it settled
 brain hooks [on|off]      the three hooks, in every harness here (Claude Code, pi); --harness <name>
+brain tend                sweep the vault: aliases now, supersede/drop/merge/date as inbox items; daily at Stop
 brain verify [<handle>]   test the claims bullets make; --apply dates what passed
 brain learn               query words to wire as aliases, aliases nobody asks for; --apply
 brain locate              print the vault's path
