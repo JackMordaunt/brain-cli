@@ -134,8 +134,12 @@ separated the good runs from the bad.
 
 `brain sync` keeps every machine's vault the same vault (brain/sync.odin).
 It is on by default and runs at the hook moments: pack receives, settle
-writes down and sends, each within the hook's time and never failing it; a
-failed reach sets a ten-minute hold so a session start is never slowed twice.
+writes down and sends. Neither runs in the hook: the hook starts `brain sync
+--quiet` as a detached process (setsid on Unix, `start /b` on Windows) and
+returns in milliseconds; the pass takes a lock under the state directory so
+two stops in a row do not race, keeps the time limits as its own safety, and
+a failed reach sets a ten-minute hold that the hook checks before starting
+anything.
 The write-down runs the vault's own gates (lint, secrets) before committing,
 so a vault without hooks still refuses a bad line, and commits unsigned
 (signing wants an agent a hook does not have) as `brain` when the machine has

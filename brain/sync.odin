@@ -60,6 +60,19 @@ cmd_sync :: proc(cli: ^Cli, args: []string) -> int {
 		r := vault_sync(cli, .Full, force = true)
 		return sync_say(cli, r)
 	}
+	// The child the hooks start: one pass, no words.
+	if args[0] == "--quiet" {
+		mode := Sync_Mode.Full
+		if len(args) > 1 && args[1] == "--receive" {
+			mode = .Receive
+		}
+		if !sync_lock(cli) {
+			return 0
+		}
+		defer sync_unlock(cli)
+		vault_sync(cli, mode)
+		return 0
+	}
 	switch args[0] {
 	case "on", "off":
 		if len(args) != 1 {
@@ -92,6 +105,84 @@ cmd_sync :: proc(cli: ^Cli, args: []string) -> int {
 		return sync_connect(cli, args[1])
 	}
 	return fail(cli, usage)
+}
+
+// SYNC_LOCK_STALE is how old a lock may be before another pass takes it: a
+// pass that died holding it.
+SYNC_LOCK_STALE :: 2 * time.Minute
+
+// sync_in_background starts one pass as a process of its own and returns at
+// once, so a hook never holds the session for the network. The child is
+// detached from the hook's process group (each platform's branch below says
+// how), inherits what it needs by name, and keeps the time limits as its
+// own safety. The checks that cost nothing run here first, so an
+// offline machine on hold does not start a process to find out.
+sync_in_background :: proc(cli: ^Cli, mode: Sync_Mode) {
+	if cli.vault == "" || !sync_enabled(cli) {
+		return
+	}
+	if !os.exists(path.join(cli.vault, ".git")) {
+		return
+	}
+	if until := strings.trim_space(first_line(path.join(cli.state, "sync", "offline-until"))); until != "" && until > now_iso() {
+		return
+	}
+	if sync_locked(cli) {
+		return
+	}
+	exe := getenv(cli, "BRAIN_EXE")
+	if exe == "" {
+		found, err := os.get_executable_path(context.allocator)
+		if err != nil {
+			return
+		}
+		exe = found
+	}
+	// The child inherits by name what the pass needs, as this process sees
+	// it (the tests give their Cli an environment of its own), and the
+	// decision already made here: sync is on.
+	env := make([dynamic]string)
+	for key in ([6]string{"PATH", "HOME", "USERPROFILE", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "SSH_AUTH_SOCK"}) {
+		if v := getenv(cli, key); v != "" {
+			append(&env, strings.concatenate({key, "=", v}))
+		}
+	}
+	append(&env, strings.concatenate({"BRAIN_VAULT=", cli.vault}))
+	append(&env, strings.concatenate({"BRAIN_STATE=", cli.state}))
+	append(&env, "BRAIN_SYNC=on")
+	append(&env, "BRAIN_NO_UPDATE=1")
+	flag := mode == .Receive ? "--receive" : "--full"
+	when ODIN_OS == .Windows {
+		cmd := strings.concatenate({"start \"\" /b \"", exe, "\" sync --quiet ", flag})
+		sh.capture(cmd, {dir = cli.vault, env = env[:], shell = .Cmd, timeout = 5 * time.Second})
+	} else {
+		// sh returns as soon as the child is in the background; the child's
+		// descriptors are closed or sent to /dev/null, so nothing waits on them.
+		sh.exec(
+			{"sh", "-c", `setsid "$0" "$@" </dev/null >/dev/null 2>&1 &`, exe, "sync", "--quiet", flag},
+			{dir = cli.vault, env = env[:], timeout = 5 * time.Second},
+		)
+	}
+}
+
+// sync_lock takes the one-pass-at-a-time lock, unless a live pass holds it.
+sync_lock :: proc(cli: ^Cli) -> bool {
+	if sync_locked(cli) {
+		return false
+	}
+	lock := path.join(cli.state, "sync", "lock")
+	path.mkdirs(path.dir(lock))
+	return path.write(lock, strings.concatenate({now_iso(), "\n"})) == nil
+}
+
+sync_unlock :: proc(cli: ^Cli) {
+	os.remove(path.join(cli.state, "sync", "lock"))
+}
+
+// sync_locked says whether a pass younger than SYNC_LOCK_STALE holds the lock.
+sync_locked :: proc(cli: ^Cli) -> bool {
+	taken := strings.trim_space(first_line(path.join(cli.state, "sync", "lock")))
+	return taken != "" && taken > iso_after(-SYNC_LOCK_STALE)
 }
 
 // run_git runs one git command in the vault, with a time limit.

@@ -445,9 +445,7 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 	// The vault is tended once a day, when an agent stops, and what changed
 	// here is written down and sent; neither prints into the session.
 	tend_daily(cli)
-	if cli.vault != "" {
-		vault_sync(cli, .Full)
-	}
+	sync_in_background(cli, .Full)
 	session, transcript := ev.session, ev.transcript
 	if session == "" || transcript == "" || !os.is_file(transcript) {
 		return 0

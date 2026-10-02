@@ -1,7 +1,9 @@
 package brain
 
+import "core:os"
 import "core:strings"
 import "core:testing"
+import "core:time"
 
 import "jm:path"
 import "jm:sh"
@@ -119,4 +121,45 @@ sync_connect_adopts_an_existing_vault :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(o, "connected: ") , o)
 	text, _ := path.read(path.join(fresh, "AI", "MEMORY.md"))
 	testing.expect(t, strings.contains(text, "**sqlite**"), "the fresh vault became the shared one")
+}
+
+// The hooks start a pass and return at once; the pass runs on its own,
+// one at a time, and the result shows up in the state and at the far side.
+@(test)
+sync_runs_in_the_background :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	// On Windows the pass is detached with `start /b` through cmd; this test
+	// runs there too, on CI, and is the only check that path has.
+	_, found := sh.which("git")
+	testing.expect(t, found, "sync is built on git; a machine without it cannot run these tests")
+	if !found {
+		return
+	}
+	f := fixture(t)
+	defer fixture_destroy(f)
+	origin := sync_fixture(t, &f)
+	cwd, _ := os.get_working_directory(context.allocator)
+	f.cli.env["BRAIN_EXE"] = path.join(cwd, "build", "debug", strings.concatenate({"brain", EXE}))
+
+	mem := path.join(f.vault, "AI", "MEMORY.md")
+	text, _ := path.read(mem)
+	testing.expect_value(t, path.write(mem, strings.concatenate({text, "- **background fact** (aliases: later) — written and sent while nothing waited — fixture — 2026-01-10\n"})), nil)
+	started := time.now()
+	sync_in_background(f.cli, .Full)
+	testing.expect(t, time.since(started) < time.Second, "the caller does not wait for the network")
+	last := path.join(f.state, "sync", "last")
+	for _ in 0 ..< 200 {
+		if os.exists(last) {
+			break
+		}
+		time.sleep(50 * time.Millisecond)
+	}
+	testing.expect(t, os.exists(last), "the pass finished on its own")
+	log := sh.exec({"git", "--git-dir", origin, "log", "--oneline"})
+	testing.expect(t, strings.contains(log.stdout, "sync: ") && strings.contains(log.stdout, "from "), log.stdout)
+	testing.expect(t, !os.exists(path.join(f.state, "sync", "lock")), "the lock is released")
+	// A lock a live pass holds keeps a second pass out.
+	testing.expect(t, sync_lock(f.cli), "lock taken")
+	testing.expect(t, !sync_lock(f.cli), "a second pass waits")
+	sync_unlock(f.cli)
 }

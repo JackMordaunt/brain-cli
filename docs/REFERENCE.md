@@ -97,9 +97,10 @@ Every command above the Set up line answers `--json` with one object.
 
 On by default. When a session starts, the machine receives what other
 machines wrote; when an agent stops, what changed here is written down and
-sent. Both happen inside the hooks' time budget and never fail a hook: a
-machine that is offline keeps its changes and sends them next time, and
-does not try again for ten minutes.
+sent. Neither holds the session: the hook starts the pass as a process of
+its own and returns at once, one pass at a time, and what arrives reaches
+the agent on its next prompt. A machine that is offline keeps its changes
+and sends them next time, and does not try again for ten minutes.
 
 ```
 brain sync                      write down, receive, send; says what happened
