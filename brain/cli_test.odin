@@ -484,6 +484,48 @@ propose_queues_and_inbox_approves :: proc(t: ^testing.T) {
 	testing.expect_value(t, code, 1)
 }
 
+// `brain inbox approve all` moves every proposal into one core file in
+// order, empties the inbox, and refuses a `drop all` or an empty inbox.
+@(test)
+inbox_approves_all :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	o, e, code := exec(f.cli, "review", "before")
+	testing.expect_value(t, code, 0)
+	_, _, code = exec(f.cli, "propose", "- **first all** — one")
+	testing.expect_value(t, code, 0)
+	_, _, code = exec(f.cli, "propose", "- **second all** — two")
+	testing.expect_value(t, code, 0)
+	_, _, code = exec(f.cli, "inbox", "drop", "all")
+	testing.expect_value(t, code, 1)
+	_, _, code = exec(f.cli, "inbox", "approve", "all", "--to", "NOWHERE")
+	testing.expect_value(t, code, 1)
+	o, _, code = exec(f.cli, "inbox", "approve", "all", "--to", "LEARNINGS")
+	testing.expect_value(t, code, 0)
+	testing.expect_value(t, o, "approved #1 **first all** -> AI/LEARNINGS.md\napproved #2 **second all** -> AI/LEARNINGS.md\n")
+	learn, _ := path.read(path.join(f.vault, "AI", "LEARNINGS.md"))
+	at1 := strings.index(learn, "- **first all** — one — fixture-agent — ")
+	at2 := strings.index(learn, "- **second all** — two — fixture-agent — ")
+	testing.expect(t, at1 >= 0 && at2 > at1, "both moved, in order")
+	inbox, _ := path.read(path.join(f.vault, INBOX_FILE))
+	testing.expect_value(t, inbox, INBOX_HEAD)
+	o, _, _ = exec(f.cli, "inbox")
+	testing.expect_value(t, o, "inbox empty\n")
+	o, _, code = exec(f.cli, "find", "second", "all")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "AI/LEARNINGS.md:"), o)
+	_, e, code = exec(f.cli, "inbox", "approve", "all")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "inbox empty"), e)
+	_, _, code = exec(f.cli, "propose", "- **third all** — three")
+	testing.expect_value(t, code, 0)
+	o, _, code = exec(f.cli, "--json", "inbox", "approve", "all")
+	testing.expect_value(t, code, 0)
+	testing.expect_value(t, o, `{"action":"approved","count":1,"to":"AI/MEMORY.md","handles":["third all"]}` + "\n")
+}
+
 // Under review after, the default, a proposal answers find at once and is
 // marked unreviewed, loses a tie to a reviewed bullet, and stops answering
 // once dropped; a dropped fact cannot be proposed again, a corrected one

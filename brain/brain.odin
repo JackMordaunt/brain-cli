@@ -310,7 +310,7 @@ Remember
                              proposed nothing, ask it what it settled; --harness, --transcript
   brain lessons              where a person corrected an agent, and commands that failed then
                              worked, from the transcripts; --since Nd, --propose queues each
-  brain inbox                what is unreviewed; approve <n> [--to LEARNINGS], drop <n>
+  brain inbox                what is unreviewed; approve <n>|all [--to LEARNINGS], drop <n>
   brain review [<mode>]      after (default): a proposal answers finds at once, marked
                              unreviewed, until dropped; before: only once approved
   brain import claude        propose what Claude Code remembered on its own; or <file.md>

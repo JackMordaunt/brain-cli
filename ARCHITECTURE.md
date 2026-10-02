@@ -307,7 +307,8 @@ they see it before or after agents do. `brain propose '<bullet>'` completes
 the line (the caller as source, today as date when they are missing),
 checks it parses as a bullet, and appends it to `AI/INBOX.md`. `brain
 inbox` numbers the proposals; `approve <n> [--to LEARNINGS]` appends the
-line to a core file, removes it from the inbox and resyncs; `drop <n>`
+line to a core file, removes it from the inbox and resyncs, and `approve
+all` does the same for every proposal in one write and one sync; `drop <n>`
 moves it to `AI/DROPPED.md`, which the scanner never reads and `propose`
 checks, so an agent cannot propose the same handle and fact again.
 

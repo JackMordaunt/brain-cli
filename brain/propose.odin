@@ -11,14 +11,14 @@ import "jm:path"
 // inbox too, so a proposal answers a find at once, marked unreviewed; when
 // it comes before, the index skips the inbox and nothing an agent wrote
 // answers a find until a person moved it into a core file. `brain inbox`
-// lists the proposals, `brain inbox approve <n> [--to LEARNINGS]` moves one
+// lists the proposals, `brain inbox approve <n>|all [--to LEARNINGS]` moves one or all
 // into a core file, and `brain inbox drop <n>` moves one to AI/DROPPED.md,
 // which the index never reads and propose checks, so the same fact is not
 // proposed again.
 
 INBOX_FILE   :: "AI/INBOX.md"
 DROPPED_FILE :: "AI/DROPPED.md"
-INBOX_HEAD   :: "# Inbox\n\nBullets agents proposed that no person has reviewed yet. `brain inbox` lists them,\n`brain inbox approve <n> [--to LEARNINGS]` moves one into memory, `brain inbox drop <n>`\nrejects it.\n\n"
+INBOX_HEAD   :: "# Inbox\n\nBullets agents proposed that no person has reviewed yet. `brain inbox` lists them,\n`brain inbox approve <n> [--to LEARNINGS]` moves one into memory, `approve all` every one,\n`brain inbox drop <n>` rejects it.\n\n"
 DROPPED_HEAD :: "# Dropped\n\nProposals a person rejected. `brain propose` refuses the same fact again.\n\n"
 
 // UNREVIEWED follows the locator of a hit still in the inbox.
@@ -265,9 +265,15 @@ cmd_inbox :: proc(cli: ^Cli, args: []string) -> int {
 	if !exists {
 		return fail(cli, "inbox empty")
 	}
-	usage := "usage: brain inbox [approve <n> [--to MEMORY|LEARNINGS|TUNINGS] | drop <n>]"
+	usage := "usage: brain inbox [approve <n>|all [--to MEMORY|LEARNINGS|TUNINGS] | drop <n>]"
 	if len(args) < 2 {
 		return fail(cli, usage)
+	}
+	if args[1] == "all" {
+		if args[0] != "approve" {
+			return fail(cli, usage)
+		}
+		return inbox_approve_all(cli, lines, args[2:], usage)
 	}
 	want, ok := strconv.parse_int(args[1])
 	if !ok || want < 1 {
@@ -290,23 +296,12 @@ cmd_inbox :: proc(cli: ^Cli, args: []string) -> int {
 	chosen := lines[at]
 	switch args[0] {
 	case "approve":
-		to := "MEMORY"
-		if len(args) >= 4 && args[2] == "--to" {
-			to = strings.to_upper(args[3])
-		} else if len(args) != 2 {
+		rel, valid := approve_target(args[2:])
+		if !valid {
 			return fail(cli, usage)
 		}
-		if to != "MEMORY" && to != "LEARNINGS" && to != "TUNINGS" {
-			return fail(cli, usage)
-		}
-		rel := strings.concatenate({"AI/", to, ".md"})
-		target := path.join(cli.vault, rel)
-		text, _ := read_text(target)
-		if text != "" && !strings.has_suffix(text, "\n") {
-			text = strings.concatenate({text, "\n"})
-		}
-		if werr := path.write(target, strings.concatenate({text, chosen.text, "\n"})); werr != nil {
-			return fail(cli, fmt.aprintf("cannot write %s: %v", target, werr))
+		if err := append_bullets(cli, rel, {chosen}); err != "" {
+			return fail(cli, err)
 		}
 		if err := write_inbox(cli, drop_at(lines, at)); err != "" {
 			return fail(cli, err)
@@ -344,6 +339,91 @@ cmd_inbox :: proc(cli: ^Cli, args: []string) -> int {
 		}
 	case:
 		return fail(cli, usage)
+	}
+	return 0
+}
+
+// approve_target reads the optional `--to MEMORY|LEARNINGS|TUNINGS` that
+// follows an approve and names the core file, relative to the vault.
+approve_target :: proc(args: []string) -> (rel: string, ok: bool) {
+	to := "MEMORY"
+	if len(args) == 2 && args[0] == "--to" {
+		to = strings.to_upper(args[1])
+	} else if len(args) != 0 {
+		return "", false
+	}
+	if to != "MEMORY" && to != "LEARNINGS" && to != "TUNINGS" {
+		return "", false
+	}
+	return strings.concatenate({"AI/", to, ".md"}), true
+}
+
+// append_bullets adds the inbox lines to the end of the core file rel,
+// in order, and says what went wrong.
+append_bullets :: proc(cli: ^Cli, rel: string, chosen: []Inbox_Line) -> string {
+	target := path.join(cli.vault, rel)
+	text, _ := read_text(target)
+	b := strings.builder_make()
+	strings.write_string(&b, text)
+	if text != "" && !strings.has_suffix(text, "\n") {
+		strings.write_string(&b, "\n")
+	}
+	for l in chosen {
+		strings.write_string(&b, l.text)
+		strings.write_string(&b, "\n")
+	}
+	if werr := path.write(target, strings.to_string(b)); werr != nil {
+		return fmt.aprintf("cannot write %s: %v", target, werr)
+	}
+	return ""
+}
+
+// inbox_approve_all moves every proposal into one core file with a single
+// write and a single sync, leaving the inbox with only its header.
+inbox_approve_all :: proc(cli: ^Cli, lines: []Inbox_Line, args: []string, usage: string) -> int {
+	rel, ok := approve_target(args)
+	if !ok {
+		return fail(cli, usage)
+	}
+	chosen := make([dynamic]Inbox_Line)
+	kept := make([dynamic]Inbox_Line)
+	for l in lines {
+		if l.is {
+			append(&chosen, l)
+		} else {
+			append(&kept, l)
+		}
+	}
+	if len(chosen) == 0 {
+		return fail(cli, "inbox empty")
+	}
+	if err := append_bullets(cli, rel, chosen[:]); err != "" {
+		return fail(cli, err)
+	}
+	if err := write_inbox(cli, kept[:]); err != "" {
+		return fail(cli, err)
+	}
+	if err := sync(cli, quiet = true); err != "" {
+		return fail(cli, err)
+	}
+	if cli.json {
+		w := jw_make()
+		jw_obj(&w)
+		jw_field(&w, "action", "approved")
+		jw_field_int(&w, "count", i64(len(chosen)))
+		jw_field(&w, "to", rel)
+		jw_key(&w, "handles")
+		jw_arr(&w)
+		for l in chosen {
+			jw_str(&w, l.bullet.handle)
+		}
+		jw_end_arr(&w)
+		jw_end_obj(&w)
+		jw_flush(cli, &w)
+	} else {
+		for l, i in chosen {
+			outf(cli, "approved #%d **%s** -> %s\n", i + 1, l.bullet.handle, rel)
+		}
 	}
 	return 0
 }
