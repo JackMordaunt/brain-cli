@@ -66,51 +66,7 @@ cmd_verify :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	defer sqlite3.close(&db)
 
-	claims := make([dynamic]Claim)
-	bullets := 0
-	stmt, qerr := sqlite3.query(db, "select file, line, handle, aliases, fact from bullets where file in " + CSV_CORE + " order by file, line")
-	if qerr != nil {
-		return fail(cli, sql_err(qerr))
-	}
-	for sqlite3.next(&stmt) {
-		handle := strings.clone(sqlite3.text(stmt, 2))
-		if len(only) > 0 && !names_any(handle, strings.clone(sqlite3.text(stmt, 3)), only[:]) {
-			continue
-		}
-		found := extract_claims(cli, strings.clone(sqlite3.text(stmt, 0)), sqlite3.integer(stmt, 1), handle, strings.clone(sqlite3.text(stmt, 4)))
-		if len(found) > 0 {
-			bullets += 1
-		}
-		append(&claims, ..found)
-	}
-	sqlite3.finish(&stmt)
-	for &c in claims {
-		check_claim(cli, &c)
-	}
-	// The verdicts replace the last run's, for doctor to read.
-	sqlite3.exec(db, "begin")
-	if len(only) == 0 {
-		sqlite3.exec(db, "delete from claims")
-	} else {
-		for c in claims {
-			sqlite3.exec_args(db, "delete from claims where handle=?", c.handle)
-		}
-	}
-	for c in claims {
-		sqlite3.exec_args(
-			db,
-			"insert into claims(file,line,handle,kind,text,verdict,why,checked) values(?,?,?,?,?,?,?,datetime('now'))",
-			c.file,
-			c.line,
-			c.handle,
-			c.kind,
-			c.text,
-			c.verdict,
-			c.why,
-		)
-	}
-	sqlite3.exec(db, "commit")
-
+	claims, bullets := verify_all(cli, db, only[:], quick = false)
 	failed := 0
 	for c in claims {
 		if c.verdict == "failed" {
@@ -119,7 +75,7 @@ cmd_verify :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	applied := 0
 	if apply {
-		applied = apply_verified(cli, claims[:])
+		applied = apply_verified(cli, claims)
 	}
 	if cli.json {
 		w := jw_make()
@@ -197,7 +153,10 @@ extract_claims :: proc(cli: ^Cli, file: string, line: i64, handle, fact: string)
 		case strings.contains(tok, "/") && !strings.has_prefix(tok, ".") && !strings.contains_any(tok, "*?=") && (strings.has_suffix(tok, ".md") || strings.has_suffix(tok, ".tsv")):
 			at.kind = "vault-file"
 			append(&claims, at)
-		case tok == "brain" && i + 1 < len(words):
+		case tok == "brain" && i + 1 < len(words) && (strings.has_prefix(w, "`") || strings.has_suffix(words[i + 1], "`")):
+			// Only a command written as one, `brain find`, is a claim; prose
+			// such as "brain calls" or "brain answered" is not (2026-10-02:
+			// tend proposed dropping two true bullets over such phrases).
 			sub := strings.trim(words[i + 1], "`'\"(),;:.!?[]<>")
 			if sub != "" && !strings.has_prefix(sub, "-") && is_plain_word(sub) {
 				at.text = strings.concatenate({"brain ", sub})
@@ -424,6 +383,65 @@ apply_verified :: proc(cli: ^Cli, claims: []Claim) -> int {
 		sync(cli, quiet = true)
 	}
 	return applied
+}
+
+// verify_all collects the checkable claims of the core bullets (those named
+// in only, when given), checks them, and replaces the last run's verdicts
+// in the claims table for doctor and tend to read. quick leaves out commit
+// claims, which ask git in every repository the bullet names: tend runs
+// quick at Stop, under the hook's timeout.
+verify_all :: proc(cli: ^Cli, db: sqlite3.Db, only: []string, quick: bool) -> (claims: []Claim, bullets: int) {
+	found_all := make([dynamic]Claim)
+	stmt, qerr := sqlite3.query(db, "select file, line, handle, aliases, fact from bullets where file in " + CSV_CORE + " order by file, line")
+	if qerr != nil {
+		return nil, 0
+	}
+	for sqlite3.next(&stmt) {
+		handle := strings.clone(sqlite3.text(stmt, 2))
+		if len(only) > 0 && !names_any(handle, strings.clone(sqlite3.text(stmt, 3)), only) {
+			continue
+		}
+		found := extract_claims(cli, strings.clone(sqlite3.text(stmt, 0)), sqlite3.integer(stmt, 1), handle, strings.clone(sqlite3.text(stmt, 4)))
+		counted := false
+		for c in found {
+			if quick && c.kind == "sha" {
+				continue
+			}
+			append(&found_all, c)
+			counted = true
+		}
+		if counted {
+			bullets += 1
+		}
+	}
+	sqlite3.finish(&stmt)
+	for &c in found_all {
+		check_claim(cli, &c)
+	}
+	// The verdicts replace the last run's, for doctor to read.
+	sqlite3.exec(db, "begin")
+	if len(only) == 0 && !quick {
+		sqlite3.exec(db, "delete from claims")
+	} else {
+		for c in found_all {
+			sqlite3.exec_args(db, "delete from claims where handle=?", c.handle)
+		}
+	}
+	for c in found_all {
+		sqlite3.exec_args(
+			db,
+			"insert into claims(file,line,handle,kind,text,verdict,why,checked) values(?,?,?,?,?,?,?,datetime('now'))",
+			c.file,
+			c.line,
+			c.handle,
+			c.kind,
+			c.text,
+			c.verdict,
+			c.why,
+		)
+	}
+	sqlite3.exec(db, "commit")
+	return found_all[:], bullets
 }
 
 // ---- doctor's reads --------------------------------------------------------

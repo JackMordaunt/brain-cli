@@ -96,6 +96,27 @@ settle_transcript :: proc(turns: int, work, propose: bool) -> string {
 	return strings.to_string(b)
 }
 
+// Reading is not work: a session of lookups, greps and quietened commands
+// is never asked; one that wrote, built or committed is.
+@(test)
+settle_counts_only_mutating_shell_as_work :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	reads := [?]string{"ls -la", "cat a.md | grep x", "brain find busctl 2>&1; echo ---; brain recall busctl 2>/dev/null", "rg -n TODO src >/dev/null"}
+	for r in reads {
+		testing.expect(t, !shell_mutates(r), r)
+	}
+	writes := [?]string{"echo hi > out.txt", "chmod +x run.sh", "sed -i 's/a/b/' f", "git commit -m x", "just release", "mkdir -p a/b"}
+	for w in writes {
+		testing.expect(t, shell_mutates(w), w)
+	}
+	tr := Transcript{tools = []Tool{{name = "Bash", input = "ls"}, {name = "Bash", input = "brain find x"}}}
+	_, worked, proposed := settle_scan(tr)
+	testing.expect(t, !worked && !proposed, "lookups alone are not work")
+	tr = Transcript{tools = []Tool{{name = "Bash", input = "printf x > f"}, {name = "Bash", input = "brain propose '- **x** — y'"}}}
+	_, worked, proposed = settle_scan(tr)
+	testing.expect(t, worked && proposed, "a write is work and the proposal is seen")
+}
+
 @(test)
 settle_asks_once_when_work_went_unproposed :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
@@ -108,27 +129,26 @@ settle_asks_once_when_work_went_unproposed :: proc(t: ^testing.T) {
 	}
 	f.cli.has_stdin = true
 
-	// Too short, no work, or already proposed: nothing to say.
-	testing.expect_value(t, path.write(file, settle_transcript(3, true, false)), nil)
+	// No work, or already proposed: nothing to say, however much was said.
+	testing.expect_value(t, path.write(file, settle_transcript(8, false, false)), nil)
 	f.cli.stdin = hook(file, "s1", false)
 	o, _, code := exec(f.cli, "settle")
 	testing.expect_value(t, code, 0)
-	testing.expect_value(t, o, "")
-	testing.expect_value(t, path.write(file, settle_transcript(8, false, false)), nil)
-	o, _, _ = exec(f.cli, "settle")
 	testing.expect_value(t, o, "")
 	testing.expect_value(t, path.write(file, settle_transcript(8, true, true)), nil)
 	o, _, _ = exec(f.cli, "settle")
 	testing.expect_value(t, o, "")
 
-	// Work without a proposal blocks the stop once, with the ask.
-	testing.expect_value(t, path.write(file, settle_transcript(8, true, false)), nil)
+	// Work without a proposal blocks the stop once, with the ask, however
+	// short the session (at Stop the last reply is not even written yet).
+	testing.expect_value(t, path.write(file, settle_transcript(2, true, false)), nil)
 	o, _, code = exec(f.cli, "settle")
 	testing.expect_value(t, code, 0)
 	v, jerr := json.parse_string(o)
 	testing.expect_value(t, jerr, nil)
 	testing.expect_value(t, json_string(v, "decision"), "block")
 	testing.expect(t, strings.contains(json_string(v, "reason"), "brain propose"), o)
+	testing.expect(t, strings.contains(json_string(v, "reason"), "This session wrote a."), o)
 	testing.expect(t, os.exists(path.join(f.state, "settle", "s1")), "the session is stamped")
 	o, _, _ = exec(f.cli, "settle")
 	testing.expect_value(t, o, "")
@@ -205,6 +225,7 @@ pi_harness_drives_prime_and_settle_by_flags :: proc(t: ^testing.T) {
 	v, jerr := json.parse_string(o)
 	testing.expect_value(t, jerr, nil)
 	testing.expect(t, strings.contains(json_string(v, "reason"), "brain propose"), o)
+	testing.expect(t, strings.contains(json_string(v, "reason"), "This session wrote a."), o)
 	_, has_decision := v.(json.Object)["decision"]
 	testing.expect(t, !has_decision, "pi's reply carries no Claude decision field")
 	o, _, _ = exec(f.cli, "settle", "--harness", "pi", "--session", "pi-1", "--transcript", file)

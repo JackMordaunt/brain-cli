@@ -1,6 +1,7 @@
 package brain
 
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
@@ -17,7 +18,12 @@ import "jm:sqlite3"
 // proposed, it asks the model to propose what the session settled, with
 // the corrections the session holds, and then lets it stop.
 
-PRIME_BUDGET :: 600 // tokens per prompt
+// PRIME_BUDGET is the tokens a prompt may be given. Measured 2026-10-02
+// (tools/proof lookup, sonnet, two repeats): at 300 a note-only fact cost
+// 131K tokens and 1.75 brain calls because the paragraph did not fit; at
+// 600, 53K and 7/8; at 1200, 49K and 8/8, with bullet questions unchanged
+// at 34K, since the budget only caps what matched.
+PRIME_BUDGET :: 1200 // tokens per prompt
 PRIME_TERMS :: 12 // query terms taken from a prompt
 PRIME_OR_LIMIT :: 40 // bullets considered when no bullet holds every term
 PRIME_DOC_LIMIT :: 25 // note lines considered when none holds every term
@@ -25,7 +31,12 @@ PRIME_DOCS :: 5 // note lines served at most
 PRIME_HEAD :: "# brain: what the vault knows about this prompt; `brain find <terms>` for more, the files are under `brain locate`\n"
 PRIME_HINT :: "# brain: nothing in the vault names this prompt; `brain find <terms>` searches it, `brain recall <terms>` past conversations\n"
 
-SETTLE_MIN_TURNS :: 6 // assistant turns before a session is worth settling
+// Settle asks when the session changed files and proposed nothing; how much
+// it spoke does not count. Until 2026-10-02 it also wanted six assistant
+// replies, and the proof's capture experiment showed why that was wrong
+// twice over: a session handed a fact wrote the files in three turns, and
+// at Stop the transcript does not yet hold the final reply, so a count of
+// replies runs one short of what the session said.
 SETTLE_CORRECTIONS :: 5 // corrections quoted back at most
 
 // Words a prompt is full of that name nothing in a vault.
@@ -48,6 +59,13 @@ PRIME_STOP :: [?]string {
 cmd_prime :: proc(cli: ^Cli, args: []string) -> int {
 	usage := "usage: brain prime [--budget <tokens>] [--harness <name>] [--session <id>] [<prompt...>]"
 	budget := PRIME_BUDGET * 4
+	// BRAIN_PRIME_BUDGET sets the tokens per prompt for a machine, or for a
+	// measurement: tools/proof runs the hooks-only condition at several.
+	if v := getenv(cli, "BRAIN_PRIME_BUDGET"); v != "" {
+		if n, ok := strconv.parse_int(v); ok && n > 0 {
+			budget = n * 4
+		}
+	}
 	harness := ""
 	flags: Hook_Event
 	words := make([dynamic]string)
@@ -184,7 +202,7 @@ cmd_prime :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	if len(docs) > 0 {
 		for d, i in docs {
-			line := strings.concatenate({rune_prefix(strings.concatenate({d.locator, "  ", d.text}), 220), "\n"})
+			line := doc_entry(db, d, hits, .Terse)
 			head := i == 0 ? len(NOTES_HEAD) : 0
 			if strings.builder_len(b) + head + len(line) > budget {
 				break
@@ -424,6 +442,9 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 	if !ok || ev.continuing {
 		return 0
 	}
+	// The vault is tended once a day, when an agent stops: no one has to
+	// remember to run it, and nothing is printed into the session.
+	tend_daily(cli)
 	session, transcript := ev.session, ev.transcript
 	if session == "" || transcript == "" || !os.is_file(transcript) {
 		return 0
@@ -436,8 +457,8 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 	if !has {
 		return 0
 	}
-	turns, worked, proposed := settle_scan(adapter.scan(cli, transcript))
-	if turns < SETTLE_MIN_TURNS || !worked || proposed {
+	_, worked, proposed, written := settle_scan_files(adapter.scan(cli, transcript))
+	if !worked || proposed {
 		return 0
 	}
 	path.mkdirs(path.dir(stamp))
@@ -448,6 +469,23 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 		&reason,
 		"brain settle: this session edited files and proposed nothing to memory. For each durable fact it settled (a decision and why, a path, a command that worked, a constraint), run `brain propose '- **handle** (aliases: what a searcher might type) — fact'`. If nothing durable was settled, reply none and stop.",
 	)
+	// Half of what settle drew out of the proof's task sessions (sonnet,
+	// 2026-10-02) described the file just written. The files are named so
+	// the ask can rule them out.
+	if len(written) > 0 {
+		strings.write_string(&reason, " This session wrote ")
+		for f, i in written {
+			if i == SETTLE_FILES {
+				strings.write_string(&reason, " and more")
+				break
+			}
+			if i > 0 {
+				strings.write_string(&reason, ", ")
+			}
+			strings.write_string(&reason, filepath.base(f))
+		}
+		strings.write_string(&reason, ". What those files say, or that they exist, is not a fact for memory: propose only what someone would need who never opens them, and nothing about this directory.")
+	}
 	if len(adapters_on(cli)) > 0 {
 		if db, err := open_recall_db(cli); err == "" {
 			defer sqlite3.close(&db)
@@ -478,6 +516,14 @@ cmd_settle :: proc(cli: ^Cli, args: []string) -> int {
 // shell command), and whether it already proposed to memory. Tool names
 // are compared in lower case, since harnesses spell them differently.
 settle_scan :: proc(tr: Transcript) -> (turns: int, worked, proposed: bool) {
+	turns, worked, proposed, _ = settle_scan_files(tr)
+	return
+}
+
+// settle_scan_files is settle_scan with the files the session wrote, each
+// once, in order, for the ask to name.
+settle_scan_files :: proc(tr: Transcript) -> (turns: int, worked, proposed: bool, written: []string) {
+	files := make([dynamic]string)
 	for t in tr.turns {
 		if t.role == "assistant" {
 			turns += 1
@@ -487,12 +533,51 @@ settle_scan :: proc(tr: Transcript) -> (turns: int, worked, proposed: bool) {
 		switch strings.to_lower(c.name) {
 		case "edit", "write", "notebookedit", "multiedit":
 			worked = true
+			if c.input != "" && !slice.contains(files[:], c.input) {
+				append(&files, c.input)
+			}
 		case "bash", "powershell":
-			worked = true
 			if strings.contains(c.input, "brain propose") {
 				proposed = true
 			}
+			if shell_mutates(c.input) {
+				worked = true
+			}
 		}
 	}
+	written = files[:]
 	return
+}
+
+// SETTLE_FILES is how many written files the ask names.
+SETTLE_FILES :: 6
+
+// MUTATING_WORDS are the words of a shell command that changes something:
+// a redirection, a file operation, a build, a commit, an install. A command
+// without one (ls, cat, grep, a brain lookup) is reading, and a session
+// that only read has settled nothing worth a Stop. Until 2026-10-02 any
+// shell command counted, and the proof watched settle ask after a lookup
+// session, whose visible answer then became the "none" it replied.
+MUTATING_WORDS :: [?]string {
+	">", "tee ", "mv ", "cp ", "rm ", "mkdir", "chmod", "chown", "touch ", "ln ", "sed -i", "patch ",
+	"git commit", "git add", "git push", "git checkout", "git switch", "git merge", "git rebase", "git tag",
+	"install", "make", "just ", "build", "npm ", "pnpm ", "yarn ", "cargo ", "go run", "go test", "pip ",
+	"pacman", "apt ", "brew ", "systemctl", "docker ", "podman ", "wget ", "curl -o", "curl -O", "rsync ",
+}
+
+// shell_mutates says whether a command line changes something. A
+// redirection of stderr to stdout or of output to /dev/null writes nothing
+// of the user's, so those are set aside before the arrow is looked for.
+shell_mutates :: proc(input: string) -> bool {
+	cmd := strings.to_lower(input)
+	for q in ([?]string{"2>&1", "2>/dev/null", "2> /dev/null", ">/dev/null", "> /dev/null", "&>/dev/null"}) {
+		cmd, _ = strings.replace_all(cmd, q, " ")
+	}
+	words := MUTATING_WORDS
+	for w in words {
+		if strings.contains(cmd, w) {
+			return true
+		}
+	}
+	return false
 }

@@ -28,7 +28,7 @@ import "../term"
 // environment and the recorded tool path both outrank it.
 BRAIN_TOOL :: #config(BRAIN_TOOL, "")
 
-SCHEMA          :: 6 // bump when a table changes shape; ensure_db then rebuilds
+SCHEMA          :: 7 // bump when a table changes shape; ensure_db then rebuilds (7: porter stemming)
 MAXLEN          :: 400 // soft cap on a bullet's fact text
 STALE_DAYS      :: 90 // a fact older than this wants re-verification
 FIND_LIMIT      :: 8
@@ -243,6 +243,8 @@ run :: proc(cli: ^Cli, raw_args: []string) -> int {
 		return cmd_ledger(cli, rest)
 	case "log":
 		return cmd_log(cli, rest)
+	case "tend":
+		return cmd_tend(cli, rest)
 	case "doctor":
 		return cmd_doctor(cli, rest)
 	case "verify":
@@ -319,6 +321,10 @@ Share
                              opencode, jules, junie, zed, warp), copilot, gemini, cursor, cline, kiro
   brain mcp                  the same tools over MCP on stdio, for agents without a shell
 Keep it healthy
+  brain tend                 keep the vault true: date what verifies, add the aliases queries
+                             use, and put the rest in the inbox as actions a person approves
+                             (mark a note superseded, drop a bullet whose claims failed, merge
+                             duplicates); runs once a day when an agent stops; --quick, --dry-run
   brain doctor               what is stale, thin, oversized, duplicated or orphaned, which
                              notes a newer bullet may have superseded, which claims failed
                              verify, which bullets were served just before a correction

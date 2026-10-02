@@ -95,7 +95,42 @@ The vault's vocabulary is `AI/synonyms.tsv`: tab-separated `term` and
 `expansion` rows under a header, one expansion per row. `find` widens each
 query term with its rows, so `systemd` can also match a bullet that says
 `user unit`. The file is reloaded whole on every `sync`. A vault without the
-file has no expansion.
+file has no expansion. Both full-text tables stem with porter, so `install`
+also matches a bullet that says `installs`; the query is stemmed the same
+way. When no bullet holds every query term, `find` says so above the
+nearest bullets by some of them (at most three, each meeting at least half
+the terms), and a miss says the vault does not have it, so an agent stops
+rewording instead of asking again. Under the bullets come note lines. A
+line whose file is older than a bullet shown above it and shares three
+distinctive words with that bullet's fact is an older telling of the same
+thing, and is served with the bullet's name on it ("older than **handle**
+above; the bullet is current"), because agents were taking a stale note's
+concrete line over the bullet whatever the section header said. A note line
+no bullet outranks is served to an agent as its paragraph, up to 500
+characters, so a fact that lives only in a note is read in one call; a
+terminal gets the line.
+
+Proposals are checked before the inbox is written: `brain propose` refuses
+a bullet the guard rejects, one that names the working directory's absolute
+path or a temp path (nothing durable lives there), and one that restates a
+current bullet, which it names; `--force` proposes a correction anyway, and
+`none`, settle's word for nothing, records nothing. `brain export` opens
+every agent file but Claude Code's with a line that says to `brain find`
+before acting and `brain propose` what settles, because those agents have no
+hooks to do it for them.
+
+`brain tend` is the sweep that keeps the vault true without anyone running
+it: settle calls it once a day, quickly and silently, when an agent stops,
+and `brain tend` runs it by hand. It dates every bullet whose claims all
+verify and adds the aliases three sessions already asked by, both free to
+undo through the vault's history, and puts what changes meaning in the
+inbox as hygiene items beside the fact proposals: mark a dated note that
+retells newer bullets as superseded, drop a bullet whose every claim
+failed, merge two bullets with one name. `brain inbox approve <n>` applies
+an item and logs it in `AI/TENDED.md`; `drop` dismisses it for good;
+`approve all` leaves hygiene items for a person. The items never answer a
+find. Why it exists is the 2026-10-02 proof: the vault's state was what
+separated the good runs from the bad.
 
 ## The index
 
@@ -278,7 +313,7 @@ wrapped line of a paragraph. Everything printed is logged as served to
 the session, bullets by handle and lines by locator, and is not served
 again in that session, by prime, pack or find. A prompt that found
 nothing is told once a session that brain is there to ask, since no
-instruction may name it. The default budget is 600 tokens a prompt.
+instruction may name it. The default budget is 1200 tokens a prompt (BRAIN_PRIME_BUDGET overrides it); 600 lost one note-only answer in eight and 300 cost a session three more calls, while bullet answers cost the same at every budget because the budget only caps what matched.
 
 `brain settle` runs where the agent would stop. It exits silently unless
 all of: the stop is not already a continuation, the session has six or

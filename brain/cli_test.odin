@@ -101,7 +101,7 @@ sync_indexes_the_fixture :: proc(t: ^testing.T) {
 	o, e, code := exec(f.cli, "sync")
 	testing.expect_value(t, code, 0)
 	testing.expect_value(t, e, "")
-	testing.expect_value(t, o, "indexed 5 bullets, 0 links, 4 files\n")
+	testing.expect_value(t, o, "indexed 5 bullets, 0 links, 6 files\n")
 }
 
 @(test)
@@ -290,6 +290,76 @@ find_matches_a_handle_by_prefix :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(o, "**libgit2**"), "libgi reaches libgit2")
 	_, _, code = exec(f.cli, "find", "li")
 	testing.expect_value(t, code, 1)
+}
+
+// Query and index are stemmed alike: `rebuild` reaches the bullet that says
+// "rebuilds", and a query whose terms no one bullet holds says so before
+// the nearest bullets.
+@(test)
+find_stems_terms_and_names_a_partial_match :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	o, _, code := exec(f.cli, "find", "rebuild")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "**sqlite**"), "rebuild reaches rebuilds")
+	o, _, code = exec(f.cli, "find", "sqlite", "zzzznope")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.has_prefix(o, PARTIAL_HEAD), o)
+	testing.expect(t, strings.contains(o, "**sqlite**"), "the nearest bullet follows")
+	o, _, code = exec(f.cli, "find", "zzzznope")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.has_suffix(o, MISS_TAIL), o)
+}
+
+// A note line an above bullet outranks says so and names the bullet; an
+// agent reading a note gets its paragraph, a terminal the line.
+@(test)
+find_marks_a_shadowed_note_and_serves_a_paragraph :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	// The 2025-12-31 note retells the sqlite bullet (2026-01-01) in other words.
+	o, _, code := exec(f.cli, "find", "rebuild")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "2025-12-31-index-note.md:3"), o)
+	testing.expect(t, strings.contains(o, "← older than **sqlite** above; the bullet is current"), o)
+	// A note with no bullet over it: the agent gets the paragraph, the terminal the line.
+	f.cli.env["BRAIN_CALLER"] = "fixture-agent"
+	o, _, code = exec(f.cli, "find", "vocabulary")
+	testing.expect_value(t, code, 0)
+	testing.expect(t, strings.contains(o, "more than one line of it"), o)
+	f.cli.env["BRAIN_CALLER"] = ""
+	o, _, _ = exec(f.cli, "find", "vocabulary")
+	testing.expect(t, !strings.contains(o, "more than one line of it"), o)
+}
+
+// A bullet tied to the directory it was found in is not a fact for memory.
+@(test)
+propose_refuses_a_scratch_path :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	f := fixture(t)
+	defer fixture_destroy(f)
+	_, e, code := exec(f.cli, "propose", "- **tmp thing** (aliases: scratch) — the script at /tmp/work/run.sh joins its arguments — fixture — 2026-01-03")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "/tmp/"), e)
+	cwd, _ := os.get_working_directory(context.allocator)
+	_, e, code = exec(f.cli, "propose", strings.concatenate({"- **here thing** (aliases: local) — the file ", cwd, "/a.odin holds the entry point — fixture — 2026-01-03"}))
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "working directory"), e)
+	_, _, code = exec(f.cli, "propose", "- **plain thing** (aliases: ok) — rsvg-convert 2.58 ignores --dpi-x unless --dpi-y is also given — fixture — 2026-01-03")
+	testing.expect_value(t, code, 0)
+	// A fact a current bullet already states is refused, and named; --force
+	// proposes it anyway, for a correction.
+	_, e, code = exec(f.cli, "propose", "- **index rebuild** (aliases: fts rebuild) — delete the SQLite index with FTS5 and brain sync rebuilds it from the markdown — fixture — 2026-01-03")
+	testing.expect_value(t, code, 1)
+	testing.expect(t, strings.contains(e, "restates **sqlite**"), e)
+	_, _, code = exec(f.cli, "propose", "--force", "- **index rebuild** (aliases: fts rebuild) — delete the SQLite index with FTS5 and brain sync rebuilds it from the markdown — fixture — 2026-01-03")
+	testing.expect_value(t, code, 0)
+	// settle's "reply none" is sometimes run as a command; it records nothing and is not an error.
+	o, _, code2 := exec(f.cli, "propose", "none")
+	testing.expect_value(t, code2, 0)
+	testing.expect_value(t, o, "nothing proposed\n")
 }
 
 // An agent gets one line per hit without the aliases or the source; --raw
@@ -633,9 +703,12 @@ export_writes_each_agents_file :: proc(t: ^testing.T) {
 	agents, _ := path.read(path.join(repo, "AGENTS.md"))
 	testing.expect(t, strings.contains(agents, "brain:memory >>>") && strings.contains(agents, "**sqlite**"), "codex is AGENTS.md")
 	cursor, _ := path.read(path.join(repo, ".cursor", "rules", "brain.mdc"))
-	testing.expect(t, strings.has_prefix(cursor, "---\ndescription: ") && strings.contains(cursor, "\nalwaysApply: true\n---\n# brain pack sqlite"), cursor)
+	// Agents without hooks are told to ask; Claude Code's hooks ask for it.
+	testing.expect(t, strings.has_prefix(cursor, "---\ndescription: ") && strings.contains(cursor, "\nalwaysApply: true\n---\nMemory for this repository") && strings.contains(cursor, "\n# brain pack sqlite"), cursor)
+	testing.expect(t, strings.contains(agents, "Before acting on a task, run `brain find"), agents)
+	testing.expect(t, !strings.contains(claude, "Before acting on a task"), claude)
 	kiro, _ := path.read(path.join(repo, ".kiro", "steering", "brain.md"))
-	testing.expect(t, strings.has_prefix(kiro, "---\ninclusion: always\n---\n# brain pack sqlite"), kiro)
+	testing.expect(t, strings.has_prefix(kiro, "---\ninclusion: always\n---\nMemory for this repository"), kiro)
 	testing.expect(t, !strings.contains(cursor, "brain:memory"), "an owned file has no block markers")
 	o, _, code = exec(f.cli, "export", "claude", "cursor")
 	testing.expect_value(t, code, 0)
@@ -651,7 +724,7 @@ export_writes_each_agents_file :: proc(t: ^testing.T) {
 		testing.expect(t, strings.contains(text, "brain:memory >>>") && strings.contains(text, "**sqlite**"), rel)
 	}
 	cline, _ := path.read(path.join(repo, ".clinerules", "brain.md"))
-	testing.expect(t, strings.has_prefix(cline, "# brain pack sqlite"), cline)
+	testing.expect(t, strings.has_prefix(cline, "Memory for this repository") && strings.contains(cline, "\n# brain pack sqlite"), cline)
 }
 
 // Import proposes what Claude Code remembered on its own, one bullet per

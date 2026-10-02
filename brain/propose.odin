@@ -1,10 +1,14 @@
 package brain
 
 import "core:fmt"
+import "core:os"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
+import "core:unicode/utf8"
 
 import "jm:path"
+import "jm:sqlite3"
 
 // An agent proposes a bullet and a person reviews it. Proposals land in
 // AI/INBOX.md. When review comes after, the default, the index reads the
@@ -85,19 +89,95 @@ cmd_review :: proc(cli: ^Cli, args: []string) -> int {
 	return 0
 }
 
+// scratch_path says why a bullet is tied to where it was written: it names
+// the working directory by its absolute path, or a path under the system's
+// temporary directory. A durable fact survives the directory it was found
+// in; the proof's task sessions (2026-10-02) proposed bullets about the
+// script they had just written, located by such paths.
+scratch_path :: proc(line: string) -> string {
+	if cwd, err := os.get_working_directory(context.allocator); err == nil && cwd != "" && cwd != "/" && strings.contains(line, cwd) {
+		return strings.concatenate({"names this working directory (", cwd, "); a durable fact does not depend on where it was found"})
+	}
+	for tmp in ([?]string{"/tmp/", "/var/tmp/", "/private/tmp/"}) {
+		if strings.contains(line, tmp) {
+			return strings.concatenate({"names a path under ", tmp, "; nothing durable lives there"})
+		}
+	}
+	return ""
+}
+
 cmd_propose :: proc(cli: ^Cli, args: []string) -> int {
 	if err := need_vault(cli); err != "" {
 		return fail(cli, err)
 	}
-	line := strings.trim_space(strings.join(args, " "))
-	if line == "" {
-		return fail(cli, "usage: brain propose '- **handle** (aliases: ...) — fact — source — YYYY-MM-DD'")
+	force := false
+	rest := make([dynamic]string)
+	for a in args {
+		if a == "--force" {
+			force = true
+		} else {
+			append(&rest, a)
+		}
 	}
-	return propose_line(cli, complete_bullet(line, caller_id(cli)))
+	line := strings.trim_space(strings.join(rest[:], " "))
+	if line == "" {
+		return fail(cli, "usage: brain propose [--force] '- **handle** (aliases: ...) — fact — source — YYYY-MM-DD'")
+	}
+	// settle says "reply none"; agents run it as a command. Nothing to record.
+	if strings.to_lower(strings.trim(line, "'\"")) == "none" {
+		out(cli, "nothing proposed\n")
+		return 0
+	}
+	return propose_line(cli, complete_bullet(line, caller_id(cli)), force)
 }
 
 // propose_line queues one completed bullet line, or says why not.
-propose_line :: proc(cli: ^Cli, line: string) -> int {
+// RESTATE_SHARE is the share of a proposed fact's distinctive words a current
+// bullet must hold to count as already saying it.
+RESTATE_SHARE :: 0.6
+
+// restating_bullet finds a current bullet, in a core file, that already says what a
+// proposed bullet says: it holds RESTATE_SHARE of the fact's distinctive
+// words (four letters or more, not query noise), words meeting as the
+// stemmed index meets them. Settle drew proposals out of the proof's task
+// sessions (2026-10-02) that restated bullets the vault held; a proposal
+// is checked against the index before the inbox is written.
+restating_bullet :: proc(cli: ^Cli, b: Bullet) -> Hit {
+	if ensure_db(cli) != "" {
+		return {}
+	}
+	db, oerr := open_db(cli.db)
+	if oerr != "" {
+		return {}
+	}
+	defer sqlite3.close(&db)
+	words := make([dynamic]string)
+	stop := PRIME_STOP
+	for t in query_terms(b.fact) {
+		if utf8.rune_count_in_string(t) >= 4 && !slice.contains(stop[:], t) && !slice.contains(words[:], t) {
+			append(&words, t)
+		}
+	}
+	if len(words) < 4 {
+		return {}
+	}
+	m, ok := build_match(db, strings.join(words[:], " "))
+	if !ok {
+		return {}
+	}
+	need := int(f64(len(words)) * RESTATE_SHARE + 0.5)
+	for h in query_fts(db, m.or, FIND_LIMIT * 2) {
+		if h.file == INBOX_FILE || h.handle == "" {
+			continue
+		}
+		if count_met_terms(strings.concatenate({h.handle, " ", h.aliases, " ", h.fact}), words[:]) >= need {
+			return h
+		}
+	}
+	return {}
+}
+
+propose_line :: proc(cli: ^Cli, line: string, force := false) -> int {
 	b, ok := parse_bullet(line, "")
 	if !ok {
 		return fail(cli, strings.concatenate({"not a bullet: it needs `- **handle**`, a fact and a date; got: ", line}))
@@ -108,6 +188,34 @@ propose_line :: proc(cli: ^Cli, line: string) -> int {
 	if why := guard_line(&guard, line); why != "" {
 		return fail(cli, strings.concatenate({"not proposed: the bullet ", why}))
 	}
+	if why := scratch_path(line); why != "" {
+		return fail(cli, strings.concatenate({"not proposed: the bullet ", why}))
+	}
+	if !force {
+		if dup := restating_bullet(cli, b); dup.handle != "" {
+			return fail(
+				cli,
+				strings.concatenate(
+					{
+						"not proposed: the bullet restates **",
+						dup.handle,
+						"** (",
+						dup.file,
+						":",
+						int_str(dup.line),
+						"); if it corrects that bullet, propose again with --force and say what changed",
+					},
+				),
+			)
+		}
+	}
+	return inbox_write(cli, line, b)
+}
+
+// inbox_write appends a parsed bullet to the inbox unless a person dropped
+// the same fact before or the same handle is already waiting; tend's
+// hygiene items take this path too, past the checks a fact gets.
+inbox_write :: proc(cli: ^Cli, line: string, b: Bullet) -> int {
 	dropped, _ := read_text(path.join(cli.vault, DROPPED_FILE))
 	for l in strings.split_lines(dropped) {
 		d, dok := parse_bullet(l, "")
@@ -150,6 +258,8 @@ propose_line :: proc(cli: ^Cli, line: string) -> int {
 	n += 1
 	if cli.json {
 		propose_json(cli, "proposed", n, b.handle)
+	} else if is_tend(b) {
+		outf(cli, "proposed #%d **%s**; brain inbox approve %d applies it\n", n, b.handle, n)
 	} else if review_mode(cli) == .After {
 		outf(cli, "proposed #%d **%s**; it answers finds now, marked unreviewed, until a person drops it\n", n, b.handle)
 	} else {
@@ -296,6 +406,26 @@ cmd_inbox :: proc(cli: ^Cli, args: []string) -> int {
 	chosen := lines[at]
 	switch args[0] {
 	case "approve":
+		// A hygiene item from tend is an action, not a fact: approving it
+		// applies the action and logs it, and nothing moves into a core file.
+		if is_tend(chosen.bullet) {
+			if err := tend_apply(cli, chosen.bullet); err != "" {
+				return fail(cli, err)
+			}
+			if err := write_inbox(cli, drop_at(lines, at)); err != "" {
+				return fail(cli, err)
+			}
+			tend_log(cli, chosen.text)
+			if err := sync(cli, quiet = true); err != "" {
+				return fail(cli, err)
+			}
+			if cli.json {
+				inbox_json(cli, "applied", want, chosen.bullet.handle, "")
+			} else {
+				outf(cli, "applied #%d **%s**\n", want, chosen.bullet.handle)
+			}
+			return 0
+		}
 		rel, valid := approve_target(args[2:])
 		if !valid {
 			return fail(cli, usage)
@@ -388,7 +518,8 @@ inbox_approve_all :: proc(cli: ^Cli, lines: []Inbox_Line, args: []string, usage:
 	chosen := make([dynamic]Inbox_Line)
 	kept := make([dynamic]Inbox_Line)
 	for l in lines {
-		if l.is {
+		// Hygiene items change the vault; each is approved on its own.
+		if l.is && !is_tend(l.bullet) {
 			append(&chosen, l)
 		} else {
 			append(&kept, l)

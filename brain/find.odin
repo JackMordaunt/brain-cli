@@ -1,6 +1,7 @@
 package brain
 
 import "core:strconv"
+import "core:slice"
 import "core:strings"
 import "core:unicode/utf8"
 
@@ -183,6 +184,9 @@ names :: proc(h: Hit, q: string) -> bool {
 // Doc is one prose result, already cut to the length find prints.
 Doc :: struct {
 	locator: string, // file:line
+	file:    string,
+	line:    i64,
+	date:    string, // the note's date, from its name; "" when it has none
 	text:    string,
 }
 
@@ -192,8 +196,8 @@ query_lines :: proc(db: sqlite3.Db, match: string, limit := 5) -> []Doc {
 	docs := make([dynamic]Doc)
 	stmt, err := sqlite3.query(
 		db,
-		`select l.file || ':' || l.line, substr(l.text,1,200)
-		 from lines_fts f join lines l on l.id = f.rowid
+		`select l.file, l.line, substr(l.text,1,600), coalesce(d.date,'')
+		 from lines_fts f join lines l on l.id = f.rowid left join docs d on d.file = l.file
 		 where lines_fts match ?
 		   and l.file not in ('AI/MEMORY.md','AI/LEARNINGS.md','AI/TUNINGS.md','AI/INBOX.md')
 		 order by bm25(lines_fts) limit ?`,
@@ -205,9 +209,140 @@ query_lines :: proc(db: sqlite3.Db, match: string, limit := 5) -> []Doc {
 	}
 	defer sqlite3.finish(&stmt)
 	for sqlite3.next(&stmt) {
-		append(&docs, Doc{locator = sqlite3.text(stmt, 0), text = sqlite3.text(stmt, 1)})
+		file, line := sqlite3.text(stmt, 0), sqlite3.integer(stmt, 1)
+		append(
+			&docs,
+			Doc {
+				locator = strings.concatenate({file, ":", int_str(line)}),
+				file = file,
+				line = line,
+				text = sqlite3.text(stmt, 2),
+				date = sqlite3.text(stmt, 3),
+			},
+		)
 	}
 	return docs[:]
+}
+
+// term_meets says whether a word of a bullet or note meets a query term:
+// equal, or one the other's prefix from four letters, so `install` meets
+// `installs` and `linux` meets `linux-amd64`; a rough stand-in for the
+// index's stemming, close enough for counting shared words.
+term_meets :: proc(word, term: string) -> bool {
+	if word == term {
+		return true
+	}
+	if len(term) >= 4 && len(word) >= 4 {
+		return strings.has_prefix(word, term) || strings.has_prefix(term, word)
+	}
+	return false
+}
+
+// count_met_terms counts the distinct terms a text meets.
+count_met_terms :: proc(text: string, terms: []string) -> int {
+	words := query_terms(text)
+	n := 0
+	for t in terms {
+		for w in words {
+			if term_meets(w, t) {
+				n += 1
+				break
+			}
+		}
+	}
+	return n
+}
+
+// PARTIAL_LIMIT is how many bullets holding only some of the terms follow
+// the ones holding all; a partial bullet must meet at least half the terms.
+PARTIAL_LIMIT :: 3
+
+// SHADOW_OVERLAP is how many distinctive words (four letters or more, not
+// query noise) a note line must share with a newer bullet's fact to count
+// as an older telling of the same thing.
+SHADOW_OVERLAP :: 3
+
+// shadowed_by names the bullet among hits that tells what a note line
+// tells, more recently: the line's file is older than the bullet (or
+// undated) and the two share SHADOW_OVERLAP distinctive words. On
+// tools/proof (sonnet, 2026-09-29 and 2026-10-02) agents took a planted
+// stale note's line over the current bullet above it, section header or
+// not, so the line itself now says which bullet outranks it.
+shadowed_by :: proc(d: Doc, hits: []Hit) -> string {
+	words := make([dynamic]string)
+	stop := PRIME_STOP
+	for t in query_terms(d.text) {
+		if utf8.rune_count_in_string(t) >= 4 && !slice.contains(stop[:], t) && !slice.contains(words[:], t) {
+			append(&words, t)
+		}
+	}
+	best, best_n := "", 0
+	for h in hits {
+		if h.handle == "" || (d.date != "" && d.date >= h.date) {
+			continue
+		}
+		n := count_met_terms(h.fact, words[:])
+		if n >= SHADOW_OVERLAP && n > best_n {
+			best, best_n = h.handle, n
+		}
+	}
+	return best
+}
+
+// PARAGRAPH_MAX bounds a note paragraph served to an agent.
+PARAGRAPH_MAX :: 500
+
+// doc_paragraph returns the note's paragraph from the hit line on: the
+// contiguous lines until a blank or a heading, PARAGRAPH_MAX characters at
+// most. A fact that lives only in a note was costing an agent several
+// rounds of 200-character snippets (tools/proof, 2026-09-29: 113K to 200K
+// tokens against grep's 74K to 129K); the paragraph answers in one.
+doc_paragraph :: proc(db: sqlite3.Db, d: Doc) -> string {
+	b := strings.builder_make()
+	stmt, err := sqlite3.query(
+		db,
+		"select text from lines where file = ? and line >= ? and line < ? order by line",
+		d.file,
+		d.line,
+		d.line + 12,
+	)
+	if err != nil {
+		return d.text
+	}
+	defer sqlite3.finish(&stmt)
+	for sqlite3.next(&stmt) {
+		t := strings.trim_space(sqlite3.text(stmt, 0))
+		if t == "" || (strings.has_prefix(t, "#") && strings.builder_len(b) > 0) {
+			break
+		}
+		if strings.builder_len(b) > 0 {
+			strings.write_string(&b, " ")
+		}
+		strings.write_string(&b, t)
+		if strings.builder_len(b) >= PARAGRAPH_MAX {
+			break
+		}
+	}
+	if strings.builder_len(b) == 0 {
+		return d.text
+	}
+	return rune_prefix(strings.to_string(b), PARAGRAPH_MAX)
+}
+
+// doc_entry renders one note line under the bullets. An agent gets the
+// paragraph, so a fact that lives only in a note is read once; a terminal
+// gets the line. A line an above bullet outranks is served as the line
+// with the bullet's name on it, whoever asks.
+doc_entry :: proc(db: sqlite3.Db, d: Doc, hits: []Hit, form: Form) -> string {
+	if by := shadowed_by(d, hits); by != "" {
+		return strings.concatenate(
+			{rune_prefix(strings.concatenate({d.locator, "  ", d.text}), 220), " ← older than **", by, "** above; the bullet is current\n"},
+		)
+	}
+	if form == .Terse {
+		return strings.concatenate({d.locator, "  ", doc_paragraph(db, d), "\n"})
+	}
+	return strings.concatenate({rune_prefix(strings.concatenate({d.locator, "  ", d.text}), 220), "\n"})
 }
 
 // Who asked. Agents set BRAIN_CALLER/BRAIN_SESSION; Claude Code is recognised
@@ -325,16 +460,44 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	}
 
 	hits := query_fts(db, m.and)
-	if len(hits) == 0 {
-		hits = query_fts(db, m.or)
-	}
 	if weighted {
 		hits = weigh(db, hits)
 	}
 	named: bool
 	hits, named = cut_to_exact(hits, raw)
+	// A bullet one word short of the query still shows: unless a handle was
+	// named outright, bullets holding some of the terms fill the list after
+	// those holding them all, and the output heads each group. Before
+	// 2026-10-02 the OR query ran only when the AND query found nothing, so
+	// `brainfold install linux` showed two bullets that happened to hold all
+	// three words and not the one that held the install line.
+	partial := 0
+	if !named && len(hits) < FIND_LIMIT {
+		terms := query_terms(raw)
+		need := max(1, (len(terms) + 1) / 2)
+		filled := make([dynamic]Hit)
+		append(&filled, ..hits)
+		for h in query_fts(db, m.or, FIND_LIMIT * 3) {
+			if len(filled) >= FIND_LIMIT || partial >= PARTIAL_LIMIT {
+				break
+			}
+			seen := false
+			for k in hits {
+				if k.file == h.file && k.line == h.line {
+					seen = true
+					break
+				}
+			}
+			if seen || count_met_terms(h.raw, terms) < need {
+				continue
+			}
+			append(&filled, h)
+			partial += 1
+		}
+		hits = filled[:]
+	}
 	docs: []Doc
-	if want_notes || !notes_short || (len(hits) < 2 && !named) {
+	if want_notes || !notes_short || (len(hits) - partial < 2 && !named) {
 		docs = query_lines(db, m.prose_and)
 		if len(docs) == 0 {
 			docs = query_lines(db, m.prose_or)
@@ -390,7 +553,7 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	if n == 0 {
 		outf(cli, "nothing in the vault for: %s\n", raw)
-		out(cli, "(noted; brain log lists what keeps missing)\n")
+		out(cli, MISS_TAIL)
 		return 1
 	}
 	// The output is capped by bytes, the budget, so a broad query cannot
@@ -398,7 +561,13 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 	// so the cost of a session's lookups can be read back.
 	written := 0
 	capped := false
-	for h in hits {
+	full := len(hits) - partial
+	for h, i in hits {
+		if i == full && partial > 0 {
+			head := full == 0 ? PARTIAL_HEAD : SOME_HEAD
+			out(cli, head)
+			written += len(head)
+		}
 		entry := format_hit(h, form, with_source)
 		if written + len(entry) > budget {
 			capped = true
@@ -411,7 +580,7 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 		out(cli, NOTES_HEAD)
 		written += len(NOTES_HEAD)
 		for d in docs {
-			line := strings.concatenate({rune_prefix(strings.concatenate({d.locator, "  ", d.text}), 220), "\n"})
+			line := doc_entry(db, d, hits, form)
 			if written + len(line) > budget {
 				capped = true
 				break
@@ -432,6 +601,14 @@ cmd_find :: proc(cli: ^Cli, args: []string) -> int {
 // written, a bullet was kept true. On tools/proof (sonnet, 2026-09-29) an
 // agent took a stale plan's line over the current bullet above it.
 NOTES_HEAD :: "-- notes (older snapshots; a bullet above outranks them) --\n"
+
+// PARTIAL_HEAD and MISS_TAIL make a weak answer final. On tools/proof
+// (sonnet, 2026-10-02) an agent asked seven times, each query a rewording,
+// before saying the vault had nothing; the nearest bullets by some terms
+// looked like an invitation to try again.
+PARTIAL_HEAD :: "-- no bullet holds every term; the nearest by some of them. If none answers, the vault does not have it: say so, do not reword and retry --\n"
+SOME_HEAD :: "-- also, by some of the terms --\n"
+MISS_TAIL :: "(noted; brain log lists what keeps missing. The vault does not have it: say so, do not reword and retry)\n"
 
 // rune_prefix returns at most n characters of s.
 rune_prefix :: proc(s: string, n: int) -> string {

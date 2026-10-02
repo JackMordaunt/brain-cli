@@ -124,6 +124,7 @@ cmd_export :: proc(cli: ^Cli, args: []string) -> int {
 	if body == "" {
 		return fail(cli, strings.concatenate({"no bullets for: ", project}))
 	}
+	asked := strings.concatenate({ASK_HEAD, body})
 	w := jw_make()
 	if cli.json {
 		jw_obj(&w)
@@ -134,11 +135,14 @@ cmd_export :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	for t in targets {
 		file := path.join(root, t.file)
+		// Claude Code has the hooks, which ask for it; every other agent is
+		// told to ask, in the file it reads.
+		text := t.name == "claude" ? body : asked
 		status: string
 		if t.own {
-			status = write_own(cli, file, strings.concatenate({t.head, body}))
+			status = write_own(cli, file, strings.concatenate({t.head, text}))
 		} else {
-			status = block_apply(cli, file, "memory", "<!--", "-->", strings.trim_right(body, "\n"), "brain export")
+			status = block_apply(cli, file, "memory", "<!--", "-->", strings.trim_right(text, "\n"), "brain export")
 		}
 		if cli.json {
 			jw_obj(&w)
@@ -155,6 +159,12 @@ cmd_export :: proc(cli: ^Cli, args: []string) -> int {
 	}
 	return 0
 }
+
+// ASK_HEAD opens the export for an agent without hooks: what the file is,
+// and the two things to do with brain that the hooks would otherwise do for
+// it. On tools/proof (sonnet, 2026-10-02) an agent told only what brain is
+// never asked it during a task; told to ask before acting, it did 16/16.
+ASK_HEAD :: "Memory for this repository, from the Brain vault (`brain locate`). Before acting on a task, run `brain find <key terms>` (a tool, an error, a file) and act on what comes back. When work settles a durable fact, `brain propose '- **handle** (aliases: ...) — fact'` records it for a person to review.\n\n"
 
 // write_own writes a file that is brain's alone, and says nothing was done
 // when it is already current.

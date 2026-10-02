@@ -119,6 +119,12 @@ cmd_reindex :: proc(cli: ^Cli, args: []string) -> int {
 	return 0
 }
 
+// Both FTS tables stem with porter over unicode61, so `install` finds a
+// bullet that says "installs" and `rebuild` one that says "rebuilds"; FTS5
+// stems the query the same way. Before 2026-10-02 the tokenizer was plain
+// unicode61 and the proof's conflict experiment watched `brainfold install
+// linux` miss the bullet that said "installs" and land on a stale note.
+
 // The vault's query vocabulary, relative to the vault root.
 SYNONYMS_FILE :: "AI/synonyms.tsv"
 
@@ -129,9 +135,9 @@ create table bullets(
   raw text, len integer);
 create table links(file text, line integer, target text);
 create table docs(file text primary key, title text, date text);
-create virtual table bullets_fts using fts5(handle, aliases, fact);
+create virtual table bullets_fts using fts5(handle, aliases, fact, tokenize='porter unicode61');
 create table lines(id integer primary key, file text, line integer, text text);
-create virtual table lines_fts using fts5(text);
+create virtual table lines_fts using fts5(text, tokenize='porter unicode61');
 create table synonyms(term text, expansion text);
 create table queries(id integer primary key, ts text, q text, hits integer,
   caller text, session text, bytes integer);
@@ -221,6 +227,9 @@ build_index :: proc(cli: ^Cli, db: sqlite3.Db, files: []string) -> string {
 			return fmt.aprintf("cannot read %s: %v", f, serr)
 		}
 		for b in s.bullets {
+			if f == INBOX_FILE && is_tend(b) {
+				continue // a hygiene item is an action for a person, not an answer
+			}
 			if e := step(&ins_bullet, b.file, i64(b.line), b.section, b.handle, b.aliases, b.fact, b.source, b.date, b.raw, i64(b.len)); e != "" {
 				return e
 			}
