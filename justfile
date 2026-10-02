@@ -13,7 +13,7 @@
 #   just branding  regenerate branding/ (SVG from tools/logo, PNG via rsvg-convert)
 #   just proof     what a lookup costs a real agent session: vanilla, plain markdown, brain
 #   just suite     every proof experiment in tools/proof/AXES.md, smoke size; SMOKE=0 for all
-#   just preview   render README.md and ARCHITECTURE.md to build/ and open them
+#   just preview   render README.md, ARCHITECTURE.md and docs/ to build/ and open them
 #   just clean     remove build/ and the index
 
 odin  := env("ODIN", "odin")
@@ -222,12 +222,13 @@ preview:
     #!/usr/bin/env bash
     set -euo pipefail
     mkdir -p build
-    for f in README ARCHITECTURE; do
+    for src in README.md ARCHITECTURE.md docs/REFERENCE.md docs/PROOF.md; do
+      f=$(basename "$src" .md)
       {
         printf '<!doctype html><meta charset=utf-8><meta name=color-scheme content="light dark"><base href="../"><title>%s</title>' "$f"
         printf '<body style="max-width:52em;margin:2em auto;padding:0 1em;font:16px/1.55 system-ui;color-scheme:light dark">'
         printf '<style>pre{overflow:auto;padding:1em;background:#8881;border-radius:6px}code{font:14px ui-monospace,monospace}table{border-collapse:collapse}td,th{border:1px solid #8884;padding:.3em .6em;text-align:left}img{max-width:100%%}blockquote{margin:0;padding:0 1em;border-left:3px solid #8886;color:#888}</style>'
-        comrak --gfm --unsafe "$f.md" 2>/dev/null | sed 's|href="\([A-Z]*\)\.md"|href="build/\1.html"|g'
+        comrak --gfm --unsafe "$src" 2>/dev/null | sed -E 's|href="(\.\./)?(docs/)?([A-Z]+)\.md"|href="build/\3.html"|g'
       } > "build/$f.html"
     done
     setsid -f xdg-open build/README.html >/dev/null 2>&1 || echo "open build/README.html"
